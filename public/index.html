@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UNO — Private Room</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- ============ HOME / ENTRY ============ -->
+    <section id="home" class="screen active">
+      <h1 class="logo">UNO</h1>
+      <p class="tagline">Private room — invite-only</p>
+
+      <div class="card-panel">
+        <h2>Join a game</h2>
+        <input id="joinName" placeholder="Your name" maxlength="20" />
+        <input id="joinCode" placeholder="Access code (e.g. ABC23)" maxlength="5" style="text-transform:uppercase" />
+        <button id="joinBtn" class="btn primary">Join Game</button>
+      </div>
+
+      <div class="card-panel admin-panel">
+        <h2>👑 Admin</h2>
+        <input id="adminPass" type="password" placeholder="Admin password" />
+        <button id="createBtn" class="btn dark">Create New Room</button>
+        <div class="watch-row">
+          <input id="watchCode" placeholder="Watch room code" maxlength="5" style="text-transform:uppercase" />
+          <button id="watchBtn" class="btn ghost">Watch</button>
+        </div>
+      </div>
+      <p id="homeError" class="error"></p>
+    </section>
+
+    <!-- ============ LOBBY ============ -->
+    <section id="lobby" class="screen">
+      <h2>Lobby</h2>
+      <div class="code-box">
+        Access code: <span id="lobbyCode" class="code"></span>
+        <button id="copyCode" class="btn tiny">Copy</button>
+      </div>
+      <p class="hint">Share this code with people you want to let in.</p>
+      <ul id="playerList" class="player-list"></ul>
+      <button id="startBtn" class="btn primary admin-only" style="display:none">Start Game</button>
+      <p id="lobbyMsg" class="hint"></p>
+    </section>
+
+    <!-- ============ GAME ============ -->
+    <section id="game" class="screen">
+      <header class="game-top">
+        <div id="turnBanner" class="turn-banner"></div>
+        <div class="top-right">
+          <span id="roleBadge" class="badge"></span>
+          <button id="unoBtn" class="btn warn small">UNO!</button>
+        </div>
+      </header>
+
+      <div id="opponents" class="opponents"></div>
+
+      <div class="table">
+        <div class="pile">
+          <div id="discard" class="big-card"></div>
+          <span class="pile-label">Discard</span>
+        </div>
+        <div class="center-info">
+          <div id="activeColor" class="color-dot"></div>
+          <div id="dirArrow" class="dir">↻</div>
+          <div id="deckCount" class="deck-count"></div>
+        </div>
+        <div class="pile">
+          <button id="drawBtn" class="big-card draw-pile">Draw</button>
+          <span class="pile-label">Draw</span>
+        </div>
+      </div>
+
+      <p id="actionLog" class="action-log"></p>
+
+      <div id="myHandWrap" class="hand-wrap">
+        <div class="hand-label">Your hand</div>
+        <div id="myHand" class="hand"></div>
+      </div>
+
+      <!-- Admin god view: everyone's cards -->
+      <div id="godView" class="god-view" style="display:none">
+        <div class="hand-label">👑 God view — all hands</div>
+        <div id="godHands"></div>
+      </div>
+
+      <button id="restartBtn" class="btn dark small admin-only" style="display:none">Restart Round</button>
+    </section>
+
+    <!-- Color picker modal for wild cards -->
+    <div id="colorModal" class="modal" style="display:none">
+      <div class="modal-box">
+        <h3>Choose a color</h3>
+        <div class="color-choices">
+          <button class="color-pick" data-color="red"></button>
+          <button class="color-pick" data-color="yellow"></button>
+          <button class="color-pick" data-color="green"></button>
+          <button class="color-pick" data-color="blue"></button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="client.js"></script>
+</body>
+</html>
