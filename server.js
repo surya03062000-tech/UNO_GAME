@@ -120,13 +120,14 @@ io.on("connection", (socket) => {
     broadcastLobby(room);
   });
 
-  // ---- Admin starts the game ----
+  // ---- Anyone (admin or player) can start the game ----
   socket.on("game:start", (_, cb) => {
-    if (!joined || joined.role !== "admin") {
-      return cb?.({ ok: false, error: "Only admin can start." });
-    }
+    if (!joined) return cb?.({ ok: false, error: "Join a room first." });
     const room = rooms.get(joined.code);
     if (!room) return cb?.({ ok: false, error: "Room gone." });
+    if (room.game && room.game.started && !room.game.gameOver) {
+      return cb?.({ ok: false, error: "Game already running." });
+    }
     if (room.players.size < 2) {
       return cb?.({ ok: false, error: "Need at least 2 players." });
     }
@@ -180,11 +181,9 @@ io.on("connection", (socket) => {
     if (r.ok) broadcastState(room);
   });
 
-  // ---- Admin restarts (new deal, same players) ----
+  // ---- Anyone can restart (new deal, same players) ----
   socket.on("game:restart", (_, cb) => {
-    if (!joined || joined.role !== "admin") {
-      return cb?.({ ok: false, error: "Only admin can restart." });
-    }
+    if (!joined) return cb?.({ ok: false, error: "Join a room first." });
     const room = rooms.get(joined.code);
     if (!room || room.players.size < 2) {
       return cb?.({ ok: false, error: "Need at least 2 players." });
@@ -192,7 +191,46 @@ io.on("connection", (socket) => {
     const ids = [...room.players.values()].map((p) => p.id);
     room.game = new UnoGame(ids).start();
     cb?.({ ok: true });
+    broadcastLobby(room);
     broadcastState(room);
+  });
+
+  // ---- Admin god-powers: edit the board / players' hands ----
+  const requireAdminGame = (cb) => {
+    if (!joined || joined.role !== "admin") {
+      cb?.({ ok: false, error: "Admin only." });
+      return null;
+    }
+    const room = rooms.get(joined.code);
+    if (!room || !room.game) {
+      cb?.({ ok: false, error: "No active game." });
+      return null;
+    }
+    return room;
+  };
+
+  socket.on("admin:setTop", (spec, cb) => {
+    const room = requireAdminGame(cb);
+    if (!room) return;
+    const r = room.game.adminSetTopCard(spec || {});
+    cb?.(r);
+    if (r.ok) broadcastState(room);
+  });
+
+  socket.on("admin:giveCard", ({ playerId, card } = {}, cb) => {
+    const room = requireAdminGame(cb);
+    if (!room) return;
+    const r = room.game.adminGiveCard(playerId, card || {});
+    cb?.(r);
+    if (r.ok) broadcastState(room);
+  });
+
+  socket.on("admin:removeCard", ({ playerId, cardId } = {}, cb) => {
+    const room = requireAdminGame(cb);
+    if (!room) return;
+    const r = room.game.adminRemoveCard(playerId, cardId);
+    cb?.(r);
+    if (r.ok) broadcastState(room);
   });
 
   socket.on("disconnect", () => {

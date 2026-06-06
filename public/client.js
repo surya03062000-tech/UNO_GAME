@@ -1,11 +1,9 @@
 const socket = io();
 
-// ---- Local session state ----
 let me = { role: null, id: null, code: null, adminPass: null };
 let lastState = null;
-let pendingWildCardId = null; // card waiting for color choice
+let pendingWildCardId = null;
 
-// ---- DOM helpers ----
 const $ = (id) => document.getElementById(id);
 const show = (screenId) => {
   document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
@@ -13,9 +11,18 @@ const show = (screenId) => {
 };
 const colorClass = (c) => ({ red: "c-red", yellow: "c-yellow", green: "c-green", blue: "c-blue", wild: "c-wild" }[c] || "c-wild");
 
-function cardText(card) {
-  if (card.kind === "number") return String(card.value);
-  return { skip: "⊘", reverse: "⇄", draw2: "+2", wild: "W", wild4: "+4" }[card.kind] || "?";
+const KIND_LABELS = {
+  number: (c) => String(c.value),
+  skip: () => "⊘", reverse: () => "⇄", draw2: () => "+2",
+  draw6: () => "+6", draw8: () => "+8", draw10: () => "+10",
+  wild: () => "W", wild4: () => "+4",
+};
+function cardSymbol(card) { return (KIND_LABELS[card.kind] || (() => "?"))(card); }
+
+// Build the inner HTML for a card (oval + corner pips).
+function cardInner(card) {
+  const s = cardSymbol(card);
+  return `<span class="corner tl">${s}</span><span class="oval"><span>${s}</span></span><span class="corner br">${s}</span>`;
 }
 
 // ================= HOME =================
@@ -57,11 +64,6 @@ function setErr(msg) { $("homeError").textContent = msg || ""; }
 function enterLobby() {
   show("lobby");
   $("lobbyCode").textContent = me.code;
-  // Admin sees Start button
-  document.querySelectorAll(".admin-only").forEach((el) => {
-    el.style.display = me.role === "admin" ? "" : "none";
-  });
-  $("startBtn").style.display = me.role === "admin" ? "block" : "none";
 }
 
 $("copyCode").onclick = () => {
@@ -85,12 +87,12 @@ socket.on("lobby", (data) => {
     li.textContent = p.name;
     ul.appendChild(li);
   });
-  $("lobbyMsg").textContent =
-    me.role === "admin"
-      ? data.players.length < 2
-        ? "Waiting for at least 2 players…"
-        : "Ready! Press Start when everyone's in."
-      : "Waiting for admin to start…";
+  const ready = data.players.length >= 2;
+  $("startBtn").disabled = !ready;
+  $("startBtn").style.opacity = ready ? "1" : ".5";
+  $("lobbyMsg").textContent = ready
+    ? "Ready! Anyone can press Start."
+    : "Waiting for at least 2 players…";
 });
 
 // ================= GAME =================
@@ -103,31 +105,30 @@ socket.on("state", (state) => {
 function renderGame(s) {
   const isAdmin = me.role === "admin";
   $("roleBadge").textContent = isAdmin ? "👑 Admin" : "Player";
+  const meP = s.players.find((p) => p.id === me.id);
+  const iAmFinished = meP && meP.finished;
+  const myTurn = !isAdmin && !iAmFinished && s.currentPlayerId === me.id && !s.gameOver;
 
   // Turn banner
-  const myTurn = !isAdmin && s.currentPlayerId === me.id && !s.winnerId;
   const banner = $("turnBanner");
-  if (s.winnerId) {
-    banner.textContent = `🏆 ${shortName(s.winnerId)} won!`;
-    banner.classList.remove("my-turn");
-  } else if (isAdmin) {
-    banner.textContent = `Turn: ${shortName(s.currentPlayerId)}`;
-    banner.classList.remove("my-turn");
-  } else {
-    banner.textContent = myTurn ? "🎯 Your turn!" : `Turn: ${shortName(s.currentPlayerId)}`;
-    banner.classList.toggle("my-turn", myTurn);
-  }
+  banner.classList.toggle("my-turn", myTurn);
+  if (s.gameOver) banner.textContent = "🏁 Game over";
+  else if (isAdmin) banner.textContent = `Turn: ${shortName(s.currentPlayerId)}`;
+  else if (iAmFinished) banner.textContent = `✅ You finished #${meP.place}! Watching…`;
+  else banner.textContent = myTurn ? "🎯 Your turn!" : `Turn: ${shortName(s.currentPlayerId)}`;
 
-  // Opponents row (everyone except me, or everyone for admin)
+  // Opponents
   const opp = $("opponents");
   opp.innerHTML = "";
   s.players.forEach((p) => {
     if (!isAdmin && p.id === me.id) return;
     const d = document.createElement("div");
-    d.className = "opp" + (p.isCurrent ? " current" : "");
+    d.className = "opp" + (p.isCurrent ? " current" : "") + (p.finished ? " finished" : "") + (p.isLoser ? " loser" : "");
     d.innerHTML = `<div class="name">${shortName(p.id)}</div>
       <div class="count">${p.handCount}</div>
-      ${p.saidUno ? '<div class="uno-tag">UNO</div>' : ""}`;
+      ${p.finished ? `<div class="place-tag">#${p.place} done</div>` : ""}
+      ${p.isLoser ? `<div class="uno-tag">LAST</div>` : ""}
+      ${p.saidUno && !p.finished ? '<div class="uno-tag">UNO</div>' : ""}`;
     opp.appendChild(d);
   });
 
@@ -135,14 +136,12 @@ function renderGame(s) {
   const top = s.topCard;
   const disc = $("discard");
   disc.className = "big-card " + colorClass(top ? top.color : "wild");
-  disc.textContent = top ? cardText(top) : "";
+  disc.innerHTML = top ? cardInner(top) : "";
   $("activeColor").style.background = `var(--${s.activeColor})`;
   $("dirArrow").textContent = s.direction === 1 ? "↻" : "↺";
   $("deckCount").textContent = `Deck: ${s.deckCount}`;
-
   $("actionLog").textContent = s.lastAction + (s.pendingDraw ? ` (pending draw: ${s.pendingDraw})` : "");
 
-  // Draw button enabled only on my turn
   $("drawBtn").disabled = !myTurn;
   $("drawBtn").style.opacity = myTurn ? "1" : ".5";
 
@@ -152,45 +151,59 @@ function renderGame(s) {
     myHandWrap.style.display = "none";
   } else {
     myHandWrap.style.display = "block";
-    const meP = s.players.find((p) => p.id === me.id);
     renderHand($("myHand"), meP ? meP.hand : [], myTurn && s.pendingDraw === 0, s);
   }
 
-  // UNO button: show if I have exactly 1 card... actually allow at 2 about to play. Keep simple: show when 1 or 2 cards.
-  const meP = s.players.find((p) => p.id === me.id);
-  $("unoBtn").style.display = !isAdmin && meP && meP.handCount <= 2 ? "" : "none";
+  $("unoBtn").style.display = !isAdmin && meP && !meP.finished && meP.handCount <= 2 ? "" : "none";
 
-  // God view (admin)
+  // Game over panel
+  const over = $("overPanel");
+  if (s.gameOver) {
+    over.style.display = "block";
+    renderRanking(s);
+  } else {
+    over.style.display = "none";
+  }
+  $("restartBtn").style.display = s.gameOver ? "none" : (isAdmin ? "block" : "none");
+
+  // Admin god view + tools
   const god = $("godView");
   if (isAdmin) {
     god.style.display = "block";
-    const wrap = $("godHands");
-    wrap.innerHTML = "";
-    s.players.forEach((p) => {
-      const row = document.createElement("div");
-      row.className = "god-hand-row";
-      const cards = (p.hand || [])
-        .map((c) => `<div class="uno-card mini ${colorClass(c.color)}">${cardText(c)}</div>`)
-        .join("");
-      row.innerHTML = `<div class="gh-name">${shortName(p.id)} (${p.handCount})${p.isCurrent ? " ⬅ turn" : ""}</div>
-        <div class="gh-cards">${cards}</div>`;
-      wrap.appendChild(row);
-    });
+    ensureAdminSelectors();
+    renderGodHands(s);
   } else {
     god.style.display = "none";
   }
+}
 
-  // Admin restart button
-  $("restartBtn").style.display = isAdmin ? "block" : "none";
+function renderRanking(s) {
+  $("overTitle").textContent = s.loserId
+    ? `🏁 Game Over — ${shortName(s.loserId)} came last!`
+    : "🏁 Game Over";
+  const ol = $("rankList");
+  ol.innerHTML = "";
+  const medals = ["🥇", "🥈", "🥉"];
+  s.finishOrder.forEach((id, i) => {
+    const li = document.createElement("li");
+    li.innerHTML = `<span><span class="medal">${medals[i] || "🏅"}</span>${shortName(id)}</span><span>#${i + 1}</span>`;
+    ol.appendChild(li);
+  });
+  if (s.loserId) {
+    const li = document.createElement("li");
+    li.className = "loser";
+    li.innerHTML = `<span><span class="medal">💀</span>${shortName(s.loserId)}</span><span>Last</span>`;
+    ol.appendChild(li);
+  }
 }
 
 function renderHand(container, cards, canAct, s) {
   container.innerHTML = "";
-  cards.forEach((c) => {
+  (cards || []).forEach((c) => {
     const el = document.createElement("div");
     const playable = canAct && playableNow(c, s);
     el.className = `uno-card ${colorClass(c.color)} ${playable ? "playable" : "disabled"}`;
-    el.textContent = cardText(c);
+    el.innerHTML = cardInner(c);
     if (playable) el.onclick = () => attemptPlay(c);
     container.appendChild(el);
   });
@@ -214,20 +227,14 @@ function attemptPlay(card) {
 }
 
 function playCard(cardId, color) {
-  socket.emit("game:play", { cardId, color }, (res) => {
-    if (!res.ok) flash(res.error);
-  });
+  socket.emit("game:play", { cardId, color }, (res) => { if (!res.ok) flash(res.error); });
 }
 
-// Color modal
 document.querySelectorAll(".color-pick").forEach((btn) => {
   btn.onclick = () => {
     const color = btn.dataset.color;
     $("colorModal").style.display = "none";
-    if (pendingWildCardId != null) {
-      playCard(pendingWildCardId, color);
-      pendingWildCardId = null;
-    }
+    if (pendingWildCardId != null) { playCard(pendingWildCardId, color); pendingWildCardId = null; }
   };
 });
 
@@ -235,7 +242,6 @@ $("drawBtn").onclick = () => {
   socket.emit("game:draw", {}, (res) => {
     if (!res.ok) flash(res.error);
     else if (res.canPlayDrawn) {
-      // Offer to play drawn card or pass.
       if (confirm("You drew a playable card. Play it now? (Cancel = keep & pass)")) {
         const card = lastState.players.find((p) => p.id === me.id)?.hand.find((c) => c.id === res.drawnCardId);
         if (card) attemptPlay(card);
@@ -248,8 +254,77 @@ $("drawBtn").onclick = () => {
 
 $("unoBtn").onclick = () => socket.emit("game:uno", {}, (res) => { if (!res.ok) flash(res.error); });
 $("restartBtn").onclick = () => socket.emit("game:restart", {}, (res) => { if (!res.ok) flash(res.error); });
+$("playAgainBtn").onclick = () => socket.emit("game:restart", {}, (res) => { if (!res.ok) flash(res.error); });
 
-function shortName(id) { return id ? id.split("#")[0] : "?"; }
+// ---------- Admin tools ----------
+const ALL_COLORS = ["red", "yellow", "green", "blue"];
+const ALL_KINDS = [
+  ["number", "Number"], ["skip", "Skip"], ["reverse", "Reverse"], ["draw2", "Draw 2"],
+  ["draw6", "Draw 6"], ["draw8", "Draw 8"], ["draw10", "Draw 10"], ["wild", "Wild"], ["wild4", "Wild +4"],
+];
+let adminSelectorsReady = false;
+function fillSelect(sel, items) {
+  sel.innerHTML = items.map(([v, l]) => `<option value="${v}">${l ?? v}</option>`).join("");
+}
+function ensureAdminSelectors() {
+  if (adminSelectorsReady) return;
+  fillSelect($("topColor"), ALL_COLORS.map((c) => [c, c]));
+  fillSelect($("topKind"), ALL_KINDS);
+  fillSelect($("topValue"), Array.from({ length: 10 }, (_, i) => [i, i]));
+  const syncTopValue = () => { $("topValue").style.display = $("topKind").value === "number" ? "" : "none"; };
+  $("topKind").onchange = syncTopValue; syncTopValue();
+  adminSelectorsReady = true;
+}
+
+$("setTopBtn").onclick = () => {
+  const spec = { color: $("topColor").value, kind: $("topKind").value, value: Number($("topValue").value) };
+  socket.emit("admin:setTop", spec, (res) => { if (!res.ok) flash(res.error); });
+};
+
+function renderGodHands(s) {
+  const wrap = $("godHands");
+  wrap.innerHTML = "";
+  s.players.forEach((p) => {
+    const row = document.createElement("div");
+    row.className = "god-hand-row" + (p.finished ? " finished" : "");
+    const cards = (p.hand || [])
+      .map((c) => `<div class="uno-card mini ${colorClass(c.color)}" data-pid="${p.id}" data-cid="${c.id}" title="Click to remove">${cardInner(c)}</div>`)
+      .join("");
+    row.innerHTML = `
+      <div class="gh-name">${shortName(p.id)} (${p.handCount})${p.isCurrent ? " ⬅ turn" : ""}${p.finished ? ` ✅ #${p.place}` : ""}</div>
+      <div class="gh-cards">${cards}</div>
+      <div class="gh-give">
+        <select class="give-color">${ALL_COLORS.map((c) => `<option>${c}</option>`).join("")}</select>
+        <select class="give-kind">${ALL_KINDS.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select>
+        <select class="give-value">${Array.from({ length: 10 }, (_, i) => `<option>${i}</option>`).join("")}</select>
+        <button class="btn tiny dark gh-give-btn" data-pid="${p.id}">Give card</button>
+      </div>`;
+    wrap.appendChild(row);
+  });
+
+  // remove-on-click for each card
+  wrap.querySelectorAll(".gh-cards .uno-card").forEach((el) => {
+    el.onclick = () => {
+      socket.emit("admin:removeCard", { playerId: el.dataset.pid, cardId: Number(el.dataset.cid) },
+        (res) => { if (!res.ok) flash(res.error); });
+    };
+  });
+  // give-card buttons
+  wrap.querySelectorAll(".gh-give-btn").forEach((btn) => {
+    btn.onclick = () => {
+      const row = btn.closest(".god-hand-row");
+      const card = {
+        color: row.querySelector(".give-color").value,
+        kind: row.querySelector(".give-kind").value,
+        value: Number(row.querySelector(".give-value").value),
+      };
+      socket.emit("admin:giveCard", { playerId: btn.dataset.pid, card },
+        (res) => { if (!res.ok) flash(res.error); });
+    };
+  });
+}
+
+function shortName(id) { return id ? String(id).split("#")[0] : "?"; }
 function flash(msg) {
   $("actionLog").textContent = "⚠ " + msg;
   setTimeout(() => { if (lastState) $("actionLog").textContent = lastState.lastAction; }, 1800);

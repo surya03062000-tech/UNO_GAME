@@ -11,8 +11,12 @@ small in a corner and play while you work.
 
 - **Real-time multiplayer** (2–8 players) using Socket.IO
 - **Access-code rooms** — admin creates a room, shares the 5-letter code; only people with the code can join
-- **👑 Admin god view** — admin sees every player's hand live (and can spectate any room with `Watch`)
-- **Full UNO rules** — numbers, Skip, Reverse, Draw 2, Wild, Wild Draw 4, direction, draw pile auto-reshuffle, UNO call, win detection
+- **👑 Admin god view & controls** — admin sees every player's hand live, can **change the discard top card**, and **give/remove cards** from any player. Can also spectate any room with `Watch`.
+- **Full UNO rules** — numbers, Skip, Reverse, Draw 2, Wild, Wild Draw 4, direction, draw pile auto-reshuffle, UNO call
+- **Mercy-style extra cards** — **+6, +8, +10** wild draw cards (pick a color, next player draws that many)
+- **Elimination play** — when you empty your hand you *finish* (ranked 🥇🥈🥉). The rest keep playing until only **one player is left** — that last player loses and the game ends. Then **anyone can start a new round**.
+- **Anyone can start** — admin or any player can press Start (2+ players needed)
+- **Polished card design** — classic UNO oval + corner pips, color gradients
 - **Small-window friendly** UI — works alongside your work on the same laptop
 - **One server**, zero database — easy & free to deploy
 

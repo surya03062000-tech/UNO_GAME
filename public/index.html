@@ -42,7 +42,8 @@
       </div>
       <p class="hint">Share this code with people you want to let in.</p>
       <ul id="playerList" class="player-list"></ul>
-      <button id="startBtn" class="btn primary admin-only" style="display:none">Start Game</button>
+      <button id="startBtn" class="btn primary">Start Game</button>
+      <p class="hint">Anyone in the room can start once 2+ players have joined.</p>
       <p id="lobbyMsg" class="hint"></p>
     </section>
 
@@ -81,13 +82,33 @@
         <div id="myHand" class="hand"></div>
       </div>
 
-      <!-- Admin god view: everyone's cards -->
+      <!-- Game over / ranking panel -->
+      <div id="overPanel" class="over-panel" style="display:none">
+        <h2 id="overTitle">🏁 Game Over</h2>
+        <ol id="rankList" class="rank-list"></ol>
+        <button id="playAgainBtn" class="btn primary">Play Again</button>
+      </div>
+
+      <!-- Admin god view: everyone's cards + controls -->
       <div id="godView" class="god-view" style="display:none">
-        <div class="hand-label">👑 God view — all hands</div>
+        <div class="hand-label">👑 God view & controls</div>
+
+        <div class="admin-tools">
+          <div class="tool-box">
+            <strong>Change top card</strong>
+            <div class="tool-row">
+              <select id="topColor"></select>
+              <select id="topKind"></select>
+              <select id="topValue"></select>
+              <button id="setTopBtn" class="btn tiny dark">Set</button>
+            </div>
+          </div>
+        </div>
+
         <div id="godHands"></div>
       </div>
 
-      <button id="restartBtn" class="btn dark small admin-only" style="display:none">Restart Round</button>
+      <button id="restartBtn" class="btn dark small" style="display:none">Restart Round</button>
     </section>
 
     <!-- Color picker modal for wild cards -->
