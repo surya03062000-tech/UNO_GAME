@@ -145,6 +145,48 @@ input:focus { outline: 2px solid var(--blue); }
 .av-btn.danger { background: var(--red); border-color: var(--red); }
 .av-status { font-size: 12px; color: var(--muted); }
 
+/* ---------- Turn timer ---------- */
+.turn-timer { font-size: 13px; font-weight: 700; margin-top: 4px; padding-left: 4px; min-height: 16px; }
+.turn-timer.urgent { color: var(--red); animation: blink .6s infinite; }
+@keyframes blink { 50% { opacity: .4; } }
+
+/* ---------- Settings panel ---------- */
+.settings-panel { background: var(--panel); border-radius: 12px; padding: 14px; margin: 14px auto; max-width: 420px; }
+.settings-panel h3 { font-size: 15px; margin-bottom: 10px; text-align: center; }
+.setting-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; font-size: 14px; gap: 10px; }
+.setting-row input[type="number"] { width: 70px; margin: 0; padding: 6px 8px; }
+.setting-row input[type="checkbox"] { width: 18px; height: 18px; }
+.setting-row.readonly { color: var(--muted); }
+.toggle-switch { position: relative; width: 44px; height: 24px; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider { position: absolute; inset: 0; background: #39425f; border-radius: 24px; transition: .2s; cursor: pointer; }
+.toggle-slider::before { content: ""; position: absolute; height: 18px; width: 18px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .2s; }
+.toggle-switch input:checked + .toggle-slider { background: var(--green); }
+.toggle-switch input:checked + .toggle-slider::before { transform: translateX(20px); }
+
+/* ---------- Animations ---------- */
+@keyframes cardPop { 0% { transform: scale(.4) rotate(-12deg); opacity: 0; } 70% { transform: scale(1.12) rotate(2deg); } 100% { transform: scale(1) rotate(0); opacity: 1; } }
+#discard.played { animation: cardPop .32s ease-out; }
+@keyframes dealIn { from { transform: translateY(26px) scale(.7); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
+.hand .uno-card { animation: dealIn .25s ease-out backwards; }
+
+.confetti-piece {
+  position: fixed; top: -12px; width: 10px; height: 14px; z-index: 100;
+  pointer-events: none; border-radius: 2px; animation: confettiFall linear forwards;
+}
+@keyframes confettiFall { to { transform: translateY(105vh) rotate(720deg); opacity: .9; } }
+
+/* ---------- Catch button ---------- */
+.opp .catch-btn { margin-top: 4px; font-size: 11px; padding: 3px 8px; background: var(--red); color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: 700; }
+
+/* ---------- Light theme ---------- */
+html[data-theme="light"] {
+  --bg: #eef1f8; --panel: #ffffff; --panel2: #f0f2fa; --text: #1a2138; --muted: #5b6580;
+}
+html[data-theme="light"] body { background: radial-gradient(circle at 50% 0%, #ffffff, #dfe4f2); }
+html[data-theme="light"] input, html[data-theme="light"] .toggle-slider { border-color: #c3cae0; }
+html[data-theme="light"] .badge, html[data-theme="light"] .av-btn { border-color: #c3cae0; }
+
 /* ---------- Avatars ---------- */
 .avatar-pick-label { font-size: 12px; color: var(--muted); margin: 2px 0 6px; }
 .avatar-pick { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }

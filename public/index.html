@@ -56,6 +56,11 @@
       <p class="hint">Anyone in the room can start once 2+ players have joined.</p>
       <p id="lobbyMsg" class="hint"></p>
 
+      <div id="settingsPanel" class="settings-panel">
+        <h3>⚙️ House Rules</h3>
+        <div id="settingsBody"></div>
+      </div>
+
       <div class="scoreboard">
         <h3>🏆 Scoreboard</h3>
         <table id="lobbyScores" class="score-table"></table>
@@ -68,9 +73,11 @@
         <div>
           <div id="turnBanner" class="turn-banner"></div>
           <div id="nextBanner" class="next-banner"></div>
+          <div id="turnTimer" class="turn-timer"></div>
         </div>
         <div class="top-right">
           <span id="roleBadge" class="badge"></span>
+          <button id="themeBtn" class="av-btn" title="Toggle theme">🌗</button>
           <button id="challengeBtn" class="btn warn small" style="display:none">Challenge</button>
           <button id="unoBtn" class="btn warn small">UNO!</button>
         </div>

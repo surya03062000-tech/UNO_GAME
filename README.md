@@ -22,6 +22,11 @@ small in a corner and play while you work.
 - **🏆 Scoreboard** — running wins / losses / games / points across rounds, shown in the lobby and at game over.
 - **📲 Installable (PWA)** — install it like a real app on a laptop or phone ("Install app" button / Add to Home Screen) and it works offline-capable.
 - **🔁 Reliable reconnect** — refresh or drop and you reclaim your seat by name (kicks the stale connection). Players who don't return within **30 seconds** are removed from the round automatically.
+- **⏱️ Turn timer** — optional per-turn countdown; if a player is away/too slow they auto-draw so the game never stalls.
+- **🤚 UNO catch** — if someone gets to one card and forgets to call UNO, anyone can hit **Catch!** and they draw 2.
+- **⚙️ Admin house rules** — toggle in the lobby: turn-timer length, starting hand size, draw-stacking, draw-until-playable, UNO-catch, Mercy cards, Skip-All.
+- **🎉 Animations & themes** — card play/deal animations, win confetti, and a 🌗 dark/light theme toggle.
+- **💾 Persistence** — scoreboards (and room rules) are saved to disk and reloaded on restart, so the leaderboard survives a server bounce (see note below).
 - **Draw-card stacking** — facing a `+2`? Stack a `+2` or anything higher (`+4/+6/+8/+10`); the pile grows for the next player. You can only stack equal-or-higher.
 - **Challenge** — when a wild draw card hits you, you can **Challenge** instead of drawing. If the player bluffed (had a matching color), *they* draw the penalty. If it was legal, *you* draw the penalty **+2 extra**.
 - **Elimination play** — empty your hand and you *finish* (ranked 🥇🥈🥉) and watch on. The rest play until only **one player is left** — that last player loses and the game ends. Then **anyone can start a new round**.
@@ -130,6 +135,16 @@ The game is a **PWA**, so it installs like a native app:
 - **iPhone (Safari):** open the URL → Share → **Add to Home Screen**.
 
 Install works only over **HTTPS** (Render gives you that) or `http://localhost`.
+
+## 💾 Persistence note
+
+Scoreboards and room rule-settings are written to `data/store.json` and reloaded when
+the server starts, so the leaderboard for a room code survives a restart. You can point
+this elsewhere with the `DATA_DIR` env var.
+
+> ⚠️ On **Render's free tier the disk is ephemeral** — a full redeploy wipes `data/`.
+> For durable storage across deploys, attach a Render **Persistent Disk** and set
+> `DATA_DIR` to its mount path (e.g. `/var/data`), or swap the JSON store for a real DB.
 
 ## 🔐 Security notes
 

@@ -7,6 +7,28 @@ let cardEdit = null; // {pid, cid} card being edited in the admin modal
 let prevTopId = null, prevMyTurn = false, prevOver = false; // for sound cues
 let playerMeta = {}; // id -> {name, avatar}
 const avatarFor = (id) => (playerMeta[id] && playerMeta[id].avatar) || "🙂";
+let turnDeadline = null, latestSettings = null;
+
+// ---- Theme ----
+(function initTheme() {
+  const t = localStorage.getItem("uno_theme") || "dark";
+  document.documentElement.setAttribute("data-theme", t);
+})();
+function toggleTheme() {
+  const cur = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", cur);
+  localStorage.setItem("uno_theme", cur);
+}
+
+// ---- Turn timer countdown ----
+setInterval(() => {
+  const el = document.getElementById("turnTimer");
+  if (!el) return;
+  if (!turnDeadline || !lastState || lastState.gameOver) { el.textContent = ""; el.classList.remove("urgent"); return; }
+  const left = Math.max(0, Math.ceil((turnDeadline - Date.now()) / 1000));
+  el.textContent = `⏱ ${left}s`;
+  el.classList.toggle("urgent", left <= 5);
+}, 250);
 
 const $ = (id) => document.getElementById(id);
 const show = (screenId) => {
@@ -132,7 +154,49 @@ socket.on("lobby", (data) => {
   $("startBtn").disabled = !ready;
   $("startBtn").style.opacity = ready ? "1" : ".5";
   $("lobbyMsg").textContent = ready ? "Ready! Anyone can press Start." : "Waiting for at least 2 players…";
+  if (data.settings) { latestSettings = data.settings; renderSettings(); }
 });
+
+// ---- House-rules settings panel ----
+const SETTING_DEFS = [
+  { key: "turnSeconds", label: "Turn timer (sec, 0=off)", type: "number", min: 0, max: 120 },
+  { key: "startingHand", label: "Starting cards", type: "number", min: 1, max: 15 },
+  { key: "stacking", label: "Allow +draw stacking", type: "bool" },
+  { key: "drawToMatch", label: "Draw until playable", type: "bool" },
+  { key: "unoCatch", label: "UNO catch penalty", type: "bool" },
+  { key: "mercy", label: "Mercy cards (+6/+8/+10)", type: "bool" },
+  { key: "skipAll", label: "Skip-All card", type: "bool" },
+];
+function renderSettings() {
+  const body = $("settingsBody");
+  if (!latestSettings) { body.innerHTML = ""; return; }
+  const isAdmin = me.role === "admin";
+  body.innerHTML = "";
+  SETTING_DEFS.forEach((def) => {
+    const row = document.createElement("div");
+    row.className = "setting-row" + (isAdmin ? "" : " readonly");
+    const val = latestSettings[def.key];
+    let control;
+    if (!isAdmin) {
+      control = def.type === "bool" ? (val ? "✅ On" : "❌ Off") : String(val);
+      row.innerHTML = `<span>${def.label}</span><span>${control}</span>`;
+    } else if (def.type === "bool") {
+      row.innerHTML = `<span>${def.label}</span>
+        <label class="toggle-switch"><input type="checkbox" ${val ? "checked" : ""}><span class="toggle-slider"></span></label>`;
+      row.querySelector("input").onchange = (e) => saveSetting(def.key, e.target.checked);
+    } else {
+      row.innerHTML = `<span>${def.label}</span><input type="number" min="${def.min}" max="${def.max}" value="${val}">`;
+      row.querySelector("input").onchange = (e) => saveSetting(def.key, Number(e.target.value));
+    }
+    body.appendChild(row);
+  });
+}
+function saveSetting(key, value) {
+  socket.emit("admin:settings", { [key]: value }, (res) => {
+    if (!res.ok) { flash(res.error); renderSettings(); }
+    else latestSettings = res.settings;
+  });
+}
 
 // ---- Scoreboard ----
 let latestScores = {};
@@ -151,6 +215,7 @@ socket.on("state", (state) => { lastState = state; show("game"); renderGame(stat
 
 function renderGame(s) {
   const isAdmin = me.role === "admin";
+  turnDeadline = s.turnDeadline || null;
   $("roleBadge").textContent = isAdmin ? "👑 Admin" : "Player";
   const meP = s.players.find((p) => p.id === me.id);
   const iAmFinished = meP && (meP.finished || meP.eliminated);
@@ -175,12 +240,16 @@ function renderGame(s) {
     if (!isAdmin && p.id === me.id) return;
     const d = document.createElement("div");
     d.className = "opp" + (p.isCurrent ? " current" : "") + (p.finished || p.eliminated ? " finished" : "") + (p.isLoser ? " loser" : "");
+    const canCatch = !s.gameOver && p.id !== me.id && !p.finished && !p.eliminated && p.handCount === 1 && !p.saidUno;
     d.innerHTML = `<div class="avatar">${avatarFor(p.id)}</div>
       <div class="name">${shortName(p.id)}</div>
       <div class="count">${p.handCount}</div>
       ${p.eliminated ? `<div class="uno-tag">💀 OUT</div>` : p.finished ? `<div class="place-tag">#${p.place} done</div>` : ""}
       ${p.isLoser ? `<div class="uno-tag">LAST</div>` : ""}
-      ${p.saidUno && !p.finished ? '<div class="uno-tag">UNO</div>' : ""}`;
+      ${p.saidUno && !p.finished ? '<div class="uno-tag">UNO</div>' : ""}
+      ${canCatch ? `<button class="catch-btn" data-target="${p.id}">Catch!</button>` : ""}`;
+    const cbtn = d.querySelector(".catch-btn");
+    if (cbtn) cbtn.onclick = () => socket.emit("game:catch", { targetId: p.id }, (r) => { if (!r.ok) flash(r.error); });
     opp.appendChild(d);
   });
 
@@ -222,15 +291,37 @@ function renderGame(s) {
     renderGodHands(s);
   } else god.style.display = "none";
 
-  // ---- Sound cues ----
+  // ---- Sound + animation cues ----
   if (s.topCard && s.topCard.id !== prevTopId) {
-    if (prevTopId !== null) SFX.forCard(s.topCard);
+    if (prevTopId !== null) {
+      SFX.forCard(s.topCard);
+      disc.classList.remove("played"); void disc.offsetWidth; disc.classList.add("played");
+    }
     prevTopId = s.topCard.id;
   }
   if (myTurn && !prevMyTurn) SFX.play("turn");
   prevMyTurn = myTurn;
-  if (s.gameOver && !prevOver) SFX.play(meP && meP.isLoser ? "lose" : meP && meP.eliminated ? "eliminate" : "win");
+  if (s.gameOver && !prevOver) {
+    const lost = meP && (meP.isLoser || meP.eliminated);
+    SFX.play(lost ? (meP.eliminated ? "eliminate" : "lose") : "win");
+    if (!lost) confetti();
+  }
   prevOver = s.gameOver;
+}
+
+// Lightweight confetti burst.
+function confetti() {
+  const colors = ["#e3342f", "#f6c700", "#2bae66", "#2b6fd8", "#fff"];
+  for (let i = 0; i < 80; i++) {
+    const p = document.createElement("div");
+    p.className = "confetti-piece";
+    p.style.left = Math.random() * 100 + "vw";
+    p.style.background = colors[Math.floor(Math.random() * colors.length)];
+    p.style.animationDuration = 2 + Math.random() * 1.6 + "s";
+    p.style.transform = `rotate(${Math.random() * 360}deg)`;
+    document.body.appendChild(p);
+    setTimeout(() => p.remove(), 4000);
+  }
 }
 
 function renderRanking(s) {
@@ -429,6 +520,7 @@ function refreshSoundBtn() {
 }
 $("soundBtn").onclick = () => { SFX.toggle(); refreshSoundBtn(); };
 refreshSoundBtn();
+$("themeBtn").onclick = toggleTheme;
 
 // ---------- Voice chat ----------
 const voice = createVoice(socket);

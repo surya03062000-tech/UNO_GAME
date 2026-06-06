@@ -14,7 +14,9 @@ const HAND_LIMIT = 35; // more than this and you're eliminated
 let GLOBAL_ID = 1;
 const newId = () => GLOBAL_ID++;
 
-export function buildDeck() {
+// Build the deck: standard 108 cards (+ optional Mercy / Skip-All extras).
+export function buildDeck(opts = {}) {
+  const { mercy = true, skipAll = true } = opts;
   const deck = [];
   const card = (props) => ({ id: newId(), ...props });
   for (const color of COLORS) {
@@ -32,10 +34,12 @@ export function buildDeck() {
     deck.push(card({ color: "wild", kind: "wild" }));
     deck.push(card({ color: "wild", kind: "wild4" }));
   }
-  for (let i = 0; i < 4; i++) deck.push(card({ color: "wild", kind: "draw6" }));
-  for (let i = 0; i < 3; i++) deck.push(card({ color: "wild", kind: "draw8" }));
-  for (let i = 0; i < 2; i++) deck.push(card({ color: "wild", kind: "draw10" }));
-  for (let i = 0; i < 2; i++) deck.push(card({ color: "wild", kind: "skipAll" }));
+  if (mercy) {
+    for (let i = 0; i < 4; i++) deck.push(card({ color: "wild", kind: "draw6" }));
+    for (let i = 0; i < 3; i++) deck.push(card({ color: "wild", kind: "draw8" }));
+    for (let i = 0; i < 2; i++) deck.push(card({ color: "wild", kind: "draw10" }));
+  }
+  if (skipAll) for (let i = 0; i < 2; i++) deck.push(card({ color: "wild", kind: "skipAll" }));
   return deck;
 }
 
@@ -59,7 +63,12 @@ export function canPlay(card, topCard, activeColor) {
 }
 
 export class UnoGame {
-  constructor(playerIds) {
+  constructor(playerIds, options = {}) {
+    this.options = {
+      startingHand: 7, stacking: true, drawToMatch: false,
+      mercy: true, skipAll: true, unoCatch: true,
+      ...options,
+    };
     this.playerOrder = [...playerIds];
     this.hands = {};
     this.deck = [];
@@ -80,7 +89,7 @@ export class UnoGame {
   }
 
   start() {
-    this.deck = shuffle(buildDeck());
+    this.deck = shuffle(buildDeck(this.options));
     this.hands = {};
     this.finished = [];
     this.eliminated = [];
@@ -91,8 +100,9 @@ export class UnoGame {
     this.currentIndex = 0;
     this.challengeInfo = null;
     this.adminNote = "";
+    const handSize = Math.max(1, Math.min(15, this.options.startingHand || 7));
     for (const id of this.playerOrder) {
-      this.hands[id] = this.deck.splice(0, 7);
+      this.hands[id] = this.deck.splice(0, handSize);
       this.unoCalled[id] = false;
     }
     let first = this.deck.shift();
@@ -199,6 +209,9 @@ export class UnoGame {
     // When a draw is pending, the only legal play is STACKING a draw card of
     // equal-or-higher value. Otherwise the player must draw (or challenge).
     if (this.pendingDraw > 0) {
+      if (!this.options.stacking) {
+        return { ok: false, error: `Stacking is off — draw ${this.pendingDraw} or challenge.` };
+      }
       const topAmt = drawAmt(this.topCard);
       const cardAmt = drawAmt(card);
       if (!cardAmt || cardAmt < topAmt) {
@@ -284,15 +297,36 @@ export class UnoGame {
       return { ok: true, drew: n, penalty: true };
     }
 
-    const [c] = this._drawCards(playerId, 1);
-    if (this._enforceHandLimit(playerId)) return { ok: true, drew: 1 };
-    if (c && canPlay(c, this.topCard, this.activeColor)) {
-      this.lastAction = `${shortName(playerId)} drew a card (playable).`;
-      return { ok: true, drew: 1, canPlayDrawn: true, drawnCardId: c.id };
+    // Draw-to-match: keep drawing until a playable card appears (capped).
+    let drew = 0, last = null;
+    do {
+      const [c] = this._drawCards(playerId, 1);
+      if (!c) break;
+      drew++; last = c;
+      if (this._enforceHandLimit(playerId)) return { ok: true, drew };
+    } while (this.options.drawToMatch && drew < 40 && !canPlay(last, this.topCard, this.activeColor));
+
+    if (last && canPlay(last, this.topCard, this.activeColor)) {
+      this.lastAction = `${shortName(playerId)} drew ${drew > 1 ? drew + " cards" : "a card"} (playable).`;
+      return { ok: true, drew, canPlayDrawn: true, drawnCardId: last.id };
     }
-    this.lastAction = `${shortName(playerId)} drew a card and passed.`;
+    this.lastAction = `${shortName(playerId)} drew ${drew > 1 ? drew + " cards" : "a card"} and passed.`;
     this._advance(1);
-    return { ok: true, drew: 1 };
+    return { ok: true, drew };
+  }
+
+  // Catch a player who has one card but never called UNO — they draw 2.
+  catchUno(targetId, byId) {
+    if (!this.options.unoCatch) return { ok: false, error: "UNO-catch is off." };
+    if (this.gameOver) return { ok: false, error: "Game already over." };
+    if (!this._isActive(targetId)) return { ok: false, error: "That player is out." };
+    if (this.hands[targetId]?.length !== 1 || this.unoCalled[targetId]) {
+      return { ok: false, error: "Nothing to catch." };
+    }
+    this._drawCards(targetId, 2);
+    this.lastAction = `${shortName(byId)} caught ${shortName(targetId)} not saying UNO — draws 2!`;
+    this._enforceHandLimit(targetId);
+    return { ok: true };
   }
 
   // The current player challenges the pending wild-draw card.

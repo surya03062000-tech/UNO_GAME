@@ -3,6 +3,7 @@ import http from "http";
 import { Server } from "socket.io";
 import { fileURLToPath } from "url";
 import path from "path";
+import fs from "fs";
 import crypto from "crypto";
 import { UnoGame } from "./game.js";
 
@@ -10,6 +11,46 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "uno-admin-123";
 const PORT = process.env.PORT || 3000;
+
+const DEFAULT_SETTINGS = {
+  turnSeconds: 0,      // 0 = no turn timer
+  startingHand: 7,
+  stacking: true,
+  drawToMatch: false,
+  mercy: true,
+  skipAll: true,
+  unoCatch: true,
+};
+
+function sanitizeSettings(patch = {}) {
+  const s = {};
+  if (patch.turnSeconds !== undefined) s.turnSeconds = Math.max(0, Math.min(120, Number(patch.turnSeconds) || 0));
+  if (patch.startingHand !== undefined) s.startingHand = Math.max(1, Math.min(15, Number(patch.startingHand) || 7));
+  for (const k of ["stacking", "drawToMatch", "mercy", "skipAll", "unoCatch"]) {
+    if (patch[k] !== undefined) s[k] = !!patch[k];
+  }
+  return s;
+}
+
+// ---- Simple JSON persistence (scores + meta + settings, keyed by room code) ----
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
+const DATA_FILE = path.join(DATA_DIR, "store.json");
+let persistTimer = null;
+function persist() {
+  if (persistTimer) return; // debounce
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    try {
+      const out = {};
+      for (const [code, room] of rooms) {
+        if (Object.keys(room.scores || {}).length === 0) continue;
+        out[code] = { scores: room.scores, meta: room.meta || {}, settings: room.settings };
+      }
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+      fs.writeFileSync(DATA_FILE, JSON.stringify(out));
+    } catch (e) { console.error("persist failed:", e.message); }
+  }, 800);
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -21,6 +62,24 @@ app.use(express.static(path.join(__dirname, "public")));
 //   adminSockets: Set, game: UnoGame|null
 // }
 const rooms = new Map();
+
+// Load any persisted rooms as dormant (no game/sockets, scores intact).
+function loadStore() {
+  try {
+    if (!fs.existsSync(DATA_FILE)) return;
+    const data = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+    for (const [code, r] of Object.entries(data)) {
+      rooms.set(code, {
+        code, players: new Map(), adminSockets: new Set(), game: null,
+        scores: r.scores || {}, meta: r.meta || {},
+        settings: { ...DEFAULT_SETTINGS, ...(r.settings || {}) },
+        turnTimer: null, turnDeadline: null,
+      });
+    }
+    console.log(`Loaded ${rooms.size} persisted room(s) from disk.`);
+  } catch (e) { console.error("loadStore failed:", e.message); }
+}
+loadStore();
 
 function genCode() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -41,11 +100,30 @@ function roomPlayersList(room) {
   }));
 }
 
-// Map of id -> {name, avatar} so clients can show avatars during play.
-function roomMeta(room) {
-  const meta = {};
-  for (const p of room.players.values()) meta[p.id] = { name: p.name, avatar: p.avatar };
-  return meta;
+// Persistent id -> {name, avatar} map (kept even after a player leaves).
+function updateMeta(room, p) {
+  room.meta = room.meta || {};
+  room.meta[p.id] = { name: p.name, avatar: p.avatar };
+}
+function roomMeta(room) { return room.meta || {}; }
+
+// Arm/refresh the per-turn auto-play timer. On timeout the current player draws
+// (and passes if needed) so a slow/away player can't stall the game.
+function armTurnTimer(room) {
+  if (room.turnTimer) { clearTimeout(room.turnTimer); room.turnTimer = null; }
+  room.turnDeadline = null;
+  const g = room.game;
+  const secs = room.settings?.turnSeconds || 0;
+  if (!g || !g.started || g.gameOver || secs <= 0) return;
+  room.turnDeadline = Date.now() + secs * 1000;
+  room.turnTimer = setTimeout(() => {
+    const game = room.game;
+    if (!game || game.gameOver) return;
+    const cur = game.currentPlayerId;
+    const r = game.drawCard(cur);
+    if (r && r.canPlayDrawn) game.pass(cur);
+    afterAction(room);
+  }, secs * 1000 + 50);
 }
 
 function broadcastScores(room) {
@@ -76,6 +154,7 @@ function recordScores(room) {
   if (g.loserId) bump(g.loserId, "losses");
   for (const id of eliminated) bump(id, "losses");
   broadcastScores(room);
+  persist();
 }
 
 // Call after any state-broadcasting action to capture a just-finished round.
@@ -87,11 +166,13 @@ function afterAction(room) {
 // Send each connected player their personalized state; admins get the god view.
 function broadcastState(room) {
   if (!room.game) return;
+  armTurnTimer(room);
+  const extra = { turnDeadline: room.turnDeadline, turnSeconds: room.settings?.turnSeconds || 0 };
   for (const p of room.players.values()) {
-    if (p.connected && p.socketId) io.to(p.socketId).emit("state", room.game.stateFor(p.id, false));
+    if (p.connected && p.socketId) io.to(p.socketId).emit("state", { ...room.game.stateFor(p.id, false), ...extra });
   }
   for (const sockId of room.adminSockets) {
-    io.to(sockId).emit("state", room.game.stateFor(null, true));
+    io.to(sockId).emit("state", { ...room.game.stateFor(null, true), ...extra });
   }
 }
 
@@ -100,13 +181,18 @@ function broadcastLobby(room) {
     code: room.code,
     players: roomPlayersList(room),
     meta: roomMeta(room),
+    settings: room.settings,
     started: !!(room.game && room.game.started),
   });
 }
 
 function maybeCleanup(room) {
   if (connectedPlayers(room).length === 0 && room.adminSockets.size === 0) {
-    rooms.delete(room.code);
+    if (room.turnTimer) { clearTimeout(room.turnTimer); room.turnTimer = null; }
+    // Keep dormant rooms that have a scoreboard so scores persist for the code.
+    if (Object.keys(room.scores || {}).length === 0) rooms.delete(room.code);
+    else room.game = null;
+    persist();
   }
 }
 
@@ -116,7 +202,11 @@ io.on("connection", (socket) => {
   socket.on("admin:create", ({ password }, cb) => {
     if (password !== ADMIN_PASSWORD) return cb?.({ ok: false, error: "Wrong admin password." });
     const code = genCode();
-    const room = { code, players: new Map(), adminSockets: new Set(), game: null, scores: {} };
+    const room = {
+      code, players: new Map(), adminSockets: new Set(), game: null,
+      scores: {}, meta: {}, settings: { ...DEFAULT_SETTINGS },
+      turnTimer: null, turnDeadline: null,
+    };
     rooms.set(code, room);
     room.adminSockets.add(socket.id);
     socket.join(code);
@@ -159,11 +249,13 @@ io.on("connection", (socket) => {
       existing.socketId = socket.id;
       if (staleId) { const old = io.sockets.sockets.get(staleId); if (old) old.disconnect(true); }
       if (avatar) existing.avatar = avatar;
+      updateMeta(room, existing);
       socket.join(code);
       joined = { code, role: "player", id: name };
       cb?.({ ok: true, code, id: name, reconnected: true });
       broadcastLobby(room);
       broadcastScores(room);
+      persist();
       if (room.game) socket.emit("state", room.game.stateFor(name, false));
       return;
     }
@@ -173,12 +265,15 @@ io.on("connection", (socket) => {
       return cb?.({ ok: false, error: "Game already running — wait for the next round." });
     }
     if (room.players.size >= 8) return cb?.({ ok: false, error: "Room is full (max 8)." });
-    room.players.set(name, { id: name, name, avatar, socketId: socket.id, connected: true, removalTimer: null });
+    const entry = { id: name, name, avatar, socketId: socket.id, connected: true, removalTimer: null };
+    room.players.set(name, entry);
+    updateMeta(room, entry);
     socket.join(code);
     joined = { code, role: "player", id: name };
     cb?.({ ok: true, code, id: name });
     broadcastLobby(room);
     broadcastScores(room);
+    persist();
   });
 
   // ---- Text chat ----
@@ -204,7 +299,7 @@ io.on("connection", (socket) => {
     if (!room) return cb?.({ ok: false, error: "Room gone." });
     const ids = connectedPlayers(room).map((p) => p.id);
     if (ids.length < 2) return cb?.({ ok: false, error: "Need at least 2 connected players." });
-    room.game = new UnoGame(ids).start();
+    room.game = new UnoGame(ids, room.settings || DEFAULT_SETTINGS).start();
     cb?.({ ok: true });
     broadcastLobby(room);
     broadcastState(room);
@@ -217,6 +312,20 @@ io.on("connection", (socket) => {
     startRound(cb);
   });
   socket.on("game:restart", (_, cb) => startRound(cb));
+
+  // Admin updates the room's rule settings (only when no game is running).
+  socket.on("admin:settings", (patch, cb) => {
+    if (!joined || joined.role !== "admin") return cb?.({ ok: false, error: "Admin only." });
+    const room = rooms.get(joined.code);
+    if (!room) return cb?.({ ok: false, error: "Room gone." });
+    if (room.game && room.game.started && !room.game.gameOver) {
+      return cb?.({ ok: false, error: "Finish the current round before changing rules." });
+    }
+    room.settings = { ...DEFAULT_SETTINGS, ...room.settings, ...sanitizeSettings(patch || {}) };
+    cb?.({ ok: true, settings: room.settings });
+    broadcastLobby(room);
+    persist();
+  });
 
   const withGame = (cb) => {
     if (!joined) return null;
@@ -248,6 +357,12 @@ io.on("connection", (socket) => {
   socket.on("game:uno", (_, cb) => {
     const room = withGame(cb); if (!room) return;
     const r = room.game.callUno(joined.id);
+    cb?.(r); if (r.ok) afterAction(room);
+  });
+  socket.on("game:catch", ({ targetId } = {}, cb) => {
+    const room = withGame(cb); if (!room) return;
+    const by = joined.role === "player" ? joined.id : "Admin";
+    const r = room.game.catchUno(targetId, by);
     cb?.(r); if (r.ok) afterAction(room);
   });
 
