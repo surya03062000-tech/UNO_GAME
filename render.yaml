@@ -1,0 +1,15 @@
+# Render Blueprint — one-click deploy for the UNO game.
+# Render auto-detects this file. See https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: uno-game
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      # Set your own secret here in the Render dashboard (or generate one).
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: NODE_VERSION
+        value: 20

@@ -56,19 +56,36 @@ Open **http://localhost:3000** in your browser.
 
 ## 🚀 Deploy online (so anyone, anywhere can play)
 
-The app is one Node server, so any Node host works. **Render** has a free tier and is easiest:
+The app is one Node server that keeps live WebSocket (Socket.IO) connections and game
+state **in memory**. So it needs a host that runs a **persistent Node server** — not a
+serverless platform.
 
-### Option A — Render (recommended, free)
+> ⚠️ **Vercel / Netlify won't work** for this game. They are serverless: they can't hold
+> open WebSocket connections or keep the in-memory rooms alive between requests. The page
+> would load but players could never join. Use Render (below) — it's free and built for this.
+
+### Option A — Render, one-click Blueprint (recommended, free)
+This repo includes a `render.yaml` blueprint, so Render sets everything up for you.
 1. Push this repo to GitHub (already done if you're reading this there 🙂).
-2. Go to [render.com](https://render.com) → **New** → **Web Service** → connect this repo.
-3. Settings:
+2. Go to [render.com](https://render.com) → **New** → **Blueprint** → connect this repo.
+3. Render reads `render.yaml` and creates the web service automatically.
+4. When asked, set the `ADMIN_PASSWORD` value to *your own secret password*.
+5. Deploy. You get a public URL like `https://uno-game.onrender.com`.
+6. Share that URL + the room access code with your friends. Done!
+
+### Option B — Render, manual (also free)
+1. [render.com](https://render.com) → **New** → **Web Service** → connect this repo.
+2. Settings:
+   - **Runtime:** Node
    - **Build command:** `npm install`
    - **Start command:** `npm start`
    - **Environment variable:** `ADMIN_PASSWORD` = *your secret password*
-4. Deploy. You get a public URL like `https://your-uno.onrender.com`.
-5. Share that URL + the room access code with your friends. Done!
+3. Deploy → public URL. Share it + the room code.
 
-### Option B — Railway / Fly.io / any VPS
+> 💤 On Render's free tier the server sleeps after ~15 min idle. The first visit after that
+> takes ~30s to wake up — totally fine for casual games.
+
+### Option C — Railway / Fly.io / any VPS
 Same idea: `npm install` then `npm start`, set the `ADMIN_PASSWORD` env var, expose the port
 (`PORT` env var is read automatically).
 
