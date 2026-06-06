@@ -366,6 +366,51 @@ io.on("connection", (socket) => {
     cb?.(r); if (r.ok) afterAction(room);
   });
 
+  // Remove a player from a room (out of any running game too).
+  function dropPlayer(room, playerId) {
+    const p = room.players.get(playerId);
+    if (p && p.removalTimer) { clearTimeout(p.removalTimer); p.removalTimer = null; }
+    room.players.delete(playerId);
+    if (room.game && room.game.started && !room.game.gameOver) {
+      room.game.removePlayer(playerId);
+      afterAction(room);
+    }
+    broadcastLobby(room);
+    maybeCleanup(room);
+  }
+
+  // A player (or watching admin) leaves the room voluntarily.
+  socket.on("room:leave", (_, cb) => {
+    if (!joined) return cb?.({ ok: false });
+    const room = rooms.get(joined.code);
+    if (!room) { joined = null; return cb?.({ ok: true }); }
+    if (joined.role === "admin") {
+      room.adminSockets.delete(socket.id);
+      socket.leave(room.code);
+      maybeCleanup(room);
+    } else {
+      socket.leave(room.code);
+      dropPlayer(room, joined.id);
+    }
+    joined = null;
+    cb?.({ ok: true });
+  });
+
+  // Admin kicks a player out of the room.
+  socket.on("admin:kick", ({ playerId } = {}, cb) => {
+    if (!joined || joined.role !== "admin") return cb?.({ ok: false, error: "Admin only." });
+    const room = rooms.get(joined.code);
+    if (!room) return cb?.({ ok: false, error: "Room gone." });
+    const p = room.players.get(playerId);
+    if (!p) return cb?.({ ok: false, error: "No such player." });
+    if (p.socketId) {
+      const s = io.sockets.sockets.get(p.socketId);
+      if (s) { s.emit("kicked"); s.leave(room.code); }
+    }
+    dropPlayer(room, playerId);
+    cb?.({ ok: true });
+  });
+
   // ---- Admin god-powers ----
   const requireAdminGame = (cb) => {
     if (!joined || joined.role !== "admin") { cb?.({ ok: false, error: "Admin only." }); return null; }

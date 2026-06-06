@@ -143,10 +143,15 @@ socket.on("lobby", (data) => {
   if (data.meta) playerMeta = data.meta;
   const ul = $("playerList");
   ul.innerHTML = "";
+  const isAdmin = me.role === "admin";
   data.players.forEach((p) => {
     const li = document.createElement("li");
-    li.innerHTML = `<span class="avatar">${p.avatar || "🙂"}</span> ${p.name}${p.connected ? "" : " <em>(offline)</em>"}`;
+    li.innerHTML = `<span><span class="avatar">${p.avatar || "🙂"}</span> ${p.name}${p.connected ? "" : " <em>(offline)</em>"}</span>` +
+      (isAdmin ? `<button class="kick-btn" data-pid="${p.id}">Kick</button>` : "");
+    li.style.display = "flex"; li.style.justifyContent = "space-between"; li.style.alignItems = "center";
     if (!p.connected) li.style.opacity = ".5";
+    const kb = li.querySelector(".kick-btn");
+    if (kb) kb.onclick = () => kickPlayer(p.id);
     ul.appendChild(li);
   });
   const online = data.players.filter((p) => p.connected).length;
@@ -438,7 +443,8 @@ function renderGodHands(s) {
     ).join("");
     const tag = p.eliminated ? " 💀 out" : p.finished ? ` ✅ #${p.place}` : "";
     row.innerHTML = `
-      <div class="gh-name">${avatarFor(p.id)} ${shortName(p.id)} (${p.handCount})${p.isCurrent ? " ⬅ turn" : ""}${tag}</div>
+      <div class="gh-name">${avatarFor(p.id)} ${shortName(p.id)} (${p.handCount})${p.isCurrent ? " ⬅ turn" : ""}${tag}
+        <button class="kick-btn gh-kick" data-pid="${p.id}">Kick</button></div>
       <div class="gh-cards">${cards}</div>
       <div class="gh-hint">Click a card to change or remove it. Or give a new card:</div>
       <div class="gh-give">
@@ -465,6 +471,12 @@ function renderGodHands(s) {
       socket.emit("admin:giveCard", { playerId: btn.dataset.pid, card }, (res) => { if (!res.ok) flash(res.error); });
     };
   });
+  wrap.querySelectorAll(".gh-kick").forEach((btn) => { btn.onclick = () => kickPlayer(btn.dataset.pid); });
+}
+
+function kickPlayer(pid) {
+  if (!confirm(`Kick ${shortName(pid)} from the room?`)) return;
+  socket.emit("admin:kick", { playerId: pid }, (res) => { if (!res.ok) flash(res.error); });
 }
 
 // ---- Admin card edit modal ----
@@ -601,6 +613,24 @@ $("installBtn").onclick = async () => {
   $("installBtn").style.display = "none";
 };
 window.addEventListener("appinstalled", () => { $("installBtn").style.display = "none"; });
+
+// ---------- Leave / kick ----------
+function leaveRoom() {
+  if (!confirm("Leave the room?")) return;
+  socket.emit("room:leave", {}, () => {});
+  clearSession();
+  if (voice.isActive()) voice.stop();
+  location.reload();
+}
+$("leaveBtn").onclick = leaveRoom;
+$("lobbyLeaveBtn").onclick = leaveRoom;
+
+socket.on("kicked", () => {
+  clearSession();
+  if (voice.isActive()) voice.stop();
+  alert("You were removed from the room by the admin.");
+  location.reload();
+});
 
 // Attempt to rejoin a previous session after a refresh.
 tryAutoReconnect();
