@@ -1,10 +1,12 @@
 const socket = io();
 
-let me = { role: null, id: null, code: null };
+let me = { role: null, id: null, code: null, avatar: "🙂" };
 let lastState = null;
 let pendingWildCardId = null;
-let godSelected = null; // {pid, cid} currently selected card in god view
+let cardEdit = null; // {pid, cid} card being edited in the admin modal
 let prevTopId = null, prevMyTurn = false, prevOver = false; // for sound cues
+let playerMeta = {}; // id -> {name, avatar}
+const avatarFor = (id) => (playerMeta[id] && playerMeta[id].avatar) || "🙂";
 
 const $ = (id) => document.getElementById(id);
 const show = (screenId) => {
@@ -27,11 +29,32 @@ function cardInner(card) {
   return `<span class="corner tl">${s}</span><span class="oval"><span>${s}</span></span><span class="corner br">${s}</span>`;
 }
 
+// ---- Avatar picker ----
+const AVATARS = ["🙂", "😎", "🤠", "🐱", "🐶", "🦊", "🐵", "🐼", "🦁", "🐸", "🐙", "🦄", "👻", "🤖", "🐲", "⭐"];
+let chosenAvatar = localStorage.getItem("uno_avatar") || AVATARS[Math.floor(Math.random() * AVATARS.length)];
+function buildAvatarPicker() {
+  const wrap = $("avatarPick");
+  wrap.innerHTML = "";
+  AVATARS.forEach((a) => {
+    const b = document.createElement("div");
+    b.className = "avatar-opt" + (a === chosenAvatar ? " sel" : "");
+    b.textContent = a;
+    b.onclick = () => {
+      chosenAvatar = a;
+      localStorage.setItem("uno_avatar", a);
+      wrap.querySelectorAll(".avatar-opt").forEach((x) => x.classList.remove("sel"));
+      b.classList.add("sel");
+    };
+    wrap.appendChild(b);
+  });
+}
+buildAvatarPicker();
+
 // ---- Remember session for refresh / reconnect -------------------------------
 const SAVE_KEY = "uno_session";
 function saveSession() {
   if (me.role === "player" && me.code && me.id) {
-    localStorage.setItem(SAVE_KEY, JSON.stringify({ code: me.code, name: me.id }));
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ code: me.code, name: me.id, avatar: me.avatar }));
   }
 }
 function clearSession() { localStorage.removeItem(SAVE_KEY); }
@@ -39,12 +62,12 @@ function tryAutoReconnect() {
   const raw = localStorage.getItem(SAVE_KEY);
   if (!raw) return;
   try {
-    const { code, name } = JSON.parse(raw);
+    const { code, name, avatar } = JSON.parse(raw);
     if (!code || !name) return;
     $("joinName").value = name;
     $("joinCode").value = code;
-    socket.emit("player:join", { code, name }, (res) => {
-      if (res.ok) { me = { role: "player", id: res.id, code: res.code }; enterLobby(); }
+    socket.emit("player:join", { code, name, avatar: avatar || chosenAvatar }, (res) => {
+      if (res.ok) { me = { role: "player", id: res.id, code: res.code, avatar: avatar || chosenAvatar }; showChat(); enterLobby(); }
       else clearSession();
     });
   } catch { clearSession(); }
@@ -56,10 +79,11 @@ $("joinBtn").onclick = () => {
   const name = $("joinName").value.trim();
   const code = $("joinCode").value.trim().toUpperCase();
   if (!name || !code) return setErr("Enter your name and the access code.");
-  socket.emit("player:join", { code, name }, (res) => {
+  socket.emit("player:join", { code, name, avatar: chosenAvatar }, (res) => {
     if (!res.ok) return setErr(res.error);
-    me = { role: "player", id: res.id, code: res.code };
+    me = { role: "player", id: res.id, code: res.code, avatar: chosenAvatar };
     saveSession();
+    showChat();
     enterLobby();
   });
 };
@@ -69,7 +93,7 @@ $("createBtn").onclick = () => {
   if (!password) return setErr("Enter admin password.");
   socket.emit("admin:create", { password }, (res) => {
     if (!res.ok) return setErr(res.error);
-    me = { role: "admin", code: res.code }; enterLobby();
+    me = { role: "admin", code: res.code, avatar: "👑" }; showChat(); enterLobby();
   });
 };
 $("watchBtn").onclick = () => {
@@ -78,7 +102,7 @@ $("watchBtn").onclick = () => {
   if (!password || !code) return setErr("Enter admin password and room code.");
   socket.emit("admin:watch", { password, code }, (res) => {
     if (!res.ok) return setErr(res.error);
-    me = { role: "admin", code: res.code }; enterLobby();
+    me = { role: "admin", code: res.code, avatar: "👑" }; showChat(); enterLobby();
   });
 };
 function setErr(msg) { $("homeError").textContent = msg || ""; }
@@ -94,11 +118,12 @@ $("startBtn").onclick = () => socket.emit("game:start", {}, (res) => { if (!res.
 
 socket.on("lobby", (data) => {
   if (data.code !== me.code) return;
+  if (data.meta) playerMeta = data.meta;
   const ul = $("playerList");
   ul.innerHTML = "";
   data.players.forEach((p) => {
     const li = document.createElement("li");
-    li.textContent = p.name + (p.connected ? "" : " (offline)");
+    li.innerHTML = `<span class="avatar">${p.avatar || "🙂"}</span> ${p.name}${p.connected ? "" : " <em>(offline)</em>"}`;
     if (!p.connected) li.style.opacity = ".5";
     ul.appendChild(li);
   });
@@ -108,6 +133,18 @@ socket.on("lobby", (data) => {
   $("startBtn").style.opacity = ready ? "1" : ".5";
   $("lobbyMsg").textContent = ready ? "Ready! Anyone can press Start." : "Waiting for at least 2 players…";
 });
+
+// ---- Scoreboard ----
+let latestScores = {};
+socket.on("scores", ({ scores }) => { latestScores = scores || {}; renderScores(); });
+function renderScores() {
+  const rows = Object.values(latestScores).sort((a, b) => b.points - a.points || b.wins - a.wins);
+  const html = rows.length
+    ? `<tr><th>Player</th><th>W</th><th>L</th><th>Games</th><th>Pts</th></tr>` +
+      rows.map((s) => `<tr><td>${avatarFor(s.name)} ${s.name}</td><td>${s.wins}</td><td>${s.losses}</td><td>${s.games}</td><td>${s.points}</td></tr>`).join("")
+    : `<tr><td class="score-empty" colspan="5">No games finished yet.</td></tr>`;
+  ["lobbyScores", "gameScores"].forEach((id) => { const el = $(id); if (el) el.innerHTML = html; });
+}
 
 // ================= GAME =================
 socket.on("state", (state) => { lastState = state; show("game"); renderGame(state); });
@@ -138,7 +175,8 @@ function renderGame(s) {
     if (!isAdmin && p.id === me.id) return;
     const d = document.createElement("div");
     d.className = "opp" + (p.isCurrent ? " current" : "") + (p.finished || p.eliminated ? " finished" : "") + (p.isLoser ? " loser" : "");
-    d.innerHTML = `<div class="name">${shortName(p.id)}</div>
+    d.innerHTML = `<div class="avatar">${avatarFor(p.id)}</div>
+      <div class="name">${shortName(p.id)}</div>
       <div class="count">${p.handCount}</div>
       ${p.eliminated ? `<div class="uno-tag">💀 OUT</div>` : p.finished ? `<div class="place-tag">#${p.place} done</div>` : ""}
       ${p.isLoser ? `<div class="uno-tag">LAST</div>` : ""}
@@ -202,19 +240,19 @@ function renderRanking(s) {
   const medals = ["🥇", "🥈", "🥉"];
   s.finishOrder.forEach((id, i) => {
     const li = document.createElement("li");
-    li.innerHTML = `<span><span class="medal">${medals[i] || "🏅"}</span>${shortName(id)}</span><span>#${i + 1}</span>`;
+    li.innerHTML = `<span><span class="medal">${medals[i] || "🏅"}</span>${avatarFor(id)} ${shortName(id)}</span><span>#${i + 1}</span>`;
     ol.appendChild(li);
   });
   (s.eliminatedOrder || []).forEach((id) => {
     const li = document.createElement("li");
     li.className = "loser";
-    li.innerHTML = `<span><span class="medal">💀</span>${shortName(id)}</span><span>Eliminated</span>`;
+    li.innerHTML = `<span><span class="medal">💀</span>${avatarFor(id)} ${shortName(id)}</span><span>Eliminated</span>`;
     ol.appendChild(li);
   });
   if (s.loserId && !(s.eliminatedOrder || []).includes(s.loserId)) {
     const li = document.createElement("li");
     li.className = "loser";
-    li.innerHTML = `<span><span class="medal">💀</span>${shortName(s.loserId)}</span><span>Last</span>`;
+    li.innerHTML = `<span><span class="medal">💀</span>${avatarFor(s.loserId)} ${shortName(s.loserId)}</span><span>Last</span>`;
     ol.appendChild(li);
   }
 }
@@ -304,57 +342,78 @@ function renderGodHands(s) {
   s.players.forEach((p) => {
     const row = document.createElement("div");
     row.className = "god-hand-row" + (p.finished || p.eliminated ? " finished" : "");
-    const cards = (p.hand || []).map((c) => {
-      const sel = godSelected && godSelected.pid === p.id && godSelected.cid === c.id ? " sel" : "";
-      return `<div class="uno-card mini ${colorClass(c.color)}${sel}" data-pid="${p.id}" data-cid="${c.id}">${cardInner(c)}</div>`;
-    }).join("");
+    const cards = (p.hand || []).map((c) =>
+      `<div class="uno-card mini ${colorClass(c.color)}" data-pid="${p.id}" data-cid="${c.id}" title="Click to edit">${cardInner(c)}</div>`
+    ).join("");
     const tag = p.eliminated ? " 💀 out" : p.finished ? ` ✅ #${p.place}` : "";
     row.innerHTML = `
-      <div class="gh-name">${shortName(p.id)} (${p.handCount})${p.isCurrent ? " ⬅ turn" : ""}${tag}</div>
+      <div class="gh-name">${avatarFor(p.id)} ${shortName(p.id)} (${p.handCount})${p.isCurrent ? " ⬅ turn" : ""}${tag}</div>
       <div class="gh-cards">${cards}</div>
-      <div class="gh-hint">Click a card to select it → Change/Remove. Or Give a new one.</div>
+      <div class="gh-hint">Click a card to change or remove it. Or give a new card:</div>
       <div class="gh-give">
         <select class="give-color">${ALL_COLORS.map((c) => `<option>${c}</option>`).join("")}</select>
         <select class="give-kind">${ALL_KINDS.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select>
         <select class="give-value">${Array.from({ length: 10 }, (_, i) => `<option>${i}</option>`).join("")}</select>
         <button class="btn tiny dark gh-give-btn" data-pid="${p.id}">Give</button>
-        <button class="btn tiny dark gh-change-btn" data-pid="${p.id}">Change selected</button>
-        <button class="btn tiny warn gh-remove-btn" data-pid="${p.id}">Remove selected</button>
       </div>`;
     wrap.appendChild(row);
   });
 
+  // Click a card → open the edit modal (change or remove). This is the reliable path.
   wrap.querySelectorAll(".gh-cards .uno-card").forEach((el) => {
-    el.onclick = () => {
-      godSelected = { pid: el.dataset.pid, cid: Number(el.dataset.cid) };
-      wrap.querySelectorAll(".gh-cards .uno-card").forEach((x) => x.classList.remove("sel"));
-      el.classList.add("sel");
-    };
-  });
-  const specFromRow = (row) => ({
-    color: row.querySelector(".give-color").value,
-    kind: row.querySelector(".give-kind").value,
-    value: Number(row.querySelector(".give-value").value),
+    el.onclick = () => openCardEdit(el.dataset.pid, Number(el.dataset.cid));
   });
   wrap.querySelectorAll(".gh-give-btn").forEach((btn) => {
-    btn.onclick = () => socket.emit("admin:giveCard", { playerId: btn.dataset.pid, card: specFromRow(btn.closest(".god-hand-row")) },
-      (res) => { if (!res.ok) flash(res.error); });
-  });
-  wrap.querySelectorAll(".gh-change-btn").forEach((btn) => {
     btn.onclick = () => {
-      if (!godSelected || godSelected.pid !== btn.dataset.pid) return flash("Select one of this player's cards first.");
-      socket.emit("admin:changeCard", { playerId: godSelected.pid, cardId: godSelected.cid, card: specFromRow(btn.closest(".god-hand-row")) },
-        (res) => { if (res.ok) godSelected = null; else flash(res.error); });
-    };
-  });
-  wrap.querySelectorAll(".gh-remove-btn").forEach((btn) => {
-    btn.onclick = () => {
-      if (!godSelected || godSelected.pid !== btn.dataset.pid) return flash("Select one of this player's cards first.");
-      socket.emit("admin:removeCard", { playerId: godSelected.pid, cardId: godSelected.cid },
-        (res) => { if (res.ok) godSelected = null; else flash(res.error); });
+      const row = btn.closest(".god-hand-row");
+      const card = {
+        color: row.querySelector(".give-color").value,
+        kind: row.querySelector(".give-kind").value,
+        value: Number(row.querySelector(".give-value").value),
+      };
+      socket.emit("admin:giveCard", { playerId: btn.dataset.pid, card }, (res) => { if (!res.ok) flash(res.error); });
     };
   });
 }
+
+// ---- Admin card edit modal ----
+let editSelectorsReady = false;
+function openCardEdit(pid, cid) {
+  cardEdit = { pid, cid };
+  if (!editSelectorsReady) {
+    fillSelect($("editColor"), ALL_COLORS.map((c) => [c, c]));
+    fillSelect($("editKind"), ALL_KINDS);
+    fillSelect($("editValue"), Array.from({ length: 10 }, (_, i) => [i, i]));
+    $("editKind").onchange = () => { $("editValue").style.display = $("editKind").value === "number" ? "" : "none"; };
+    editSelectorsReady = true;
+  }
+  // Pre-fill with the card's current values if we can find it.
+  const p = lastState && lastState.players.find((x) => x.id === pid);
+  const c = p && p.hand && p.hand.find((x) => x.id === cid);
+  if (c) {
+    $("editColor").value = ALL_COLORS.includes(c.color) ? c.color : "red";
+    $("editKind").value = c.kind;
+    $("editValue").value = c.kind === "number" ? c.value : 0;
+  }
+  $("editValue").style.display = $("editKind").value === "number" ? "" : "none";
+  $("cardEditTitle").textContent = `Edit ${shortName(pid)}'s card`;
+  $("cardEditModal").style.display = "flex";
+}
+function closeCardEdit() { $("cardEditModal").style.display = "none"; cardEdit = null; }
+$("editCancelBtn").onclick = closeCardEdit;
+$("editChangeBtn").onclick = () => {
+  if (!cardEdit) return;
+  const card = { color: $("editColor").value, kind: $("editKind").value, value: Number($("editValue").value) };
+  socket.emit("admin:changeCard", { playerId: cardEdit.pid, cardId: cardEdit.cid, card }, (res) => {
+    if (res.ok) closeCardEdit(); else flash(res.error);
+  });
+};
+$("editRemoveBtn").onclick = () => {
+  if (!cardEdit) return;
+  socket.emit("admin:removeCard", { playerId: cardEdit.pid, cardId: cardEdit.cid }, (res) => {
+    if (res.ok) closeCardEdit(); else flash(res.error);
+  });
+};
 
 function shortName(id) { return id ? String(id).split("#")[0] : "?"; }
 function flash(msg) {
@@ -398,6 +457,58 @@ $("muteBtn").onclick = () => voice.toggleMute();
 $("deafenBtn").onclick = () => voice.toggleDeafen();
 // Leave voice cleanly on tab close.
 window.addEventListener("beforeunload", () => { if (voice.isActive()) voice.stop(); });
+
+// ---------- Text chat ----------
+let chatCollapsed = false, chatUnread = 0;
+function showChat() { $("chatWidget").style.display = "flex"; }
+function setChatHead() {
+  $("chatToggle").textContent = chatCollapsed ? "+" : "–";
+  const head = $("chatWidget").querySelector(".chat-head span");
+  head.innerHTML = "💬 Chat" + (chatCollapsed && chatUnread ? ` <span class="chat-unread">${chatUnread}</span>` : "");
+}
+function toggleChat() {
+  chatCollapsed = !chatCollapsed;
+  $("chatWidget").classList.toggle("collapsed", chatCollapsed);
+  if (!chatCollapsed) chatUnread = 0;
+  setChatHead();
+}
+$("chatToggle").onclick = toggleChat;
+$("chatWidget").querySelector(".chat-head").onclick = (e) => { if (e.target.id !== "chatToggle") toggleChat(); };
+$("chatForm").onsubmit = (e) => {
+  e.preventDefault();
+  const text = $("chatInput").value.trim();
+  if (!text) return;
+  socket.emit("chat:send", { text });
+  $("chatInput").value = "";
+};
+socket.on("chat:msg", ({ name, avatar, text }) => {
+  const box = $("chatMessages");
+  const div = document.createElement("div");
+  div.className = "chat-msg";
+  const mine = name === (me.id || (me.role === "admin" ? "Admin" : ""));
+  div.innerHTML = `<span class="who">${avatar || "🙂"} ${escapeHtml(name)}${mine ? " (you)" : ""}:</span> ${escapeHtml(text)}`;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+  SFX.play("number");
+  if (chatCollapsed && !mine) { chatUnread++; setChatHead(); }
+});
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+// ---------- PWA install ----------
+let deferredInstall = null;
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredInstall = e;
+  $("installBtn").style.display = "block";
+});
+$("installBtn").onclick = async () => {
+  if (!deferredInstall) return;
+  deferredInstall.prompt();
+  await deferredInstall.userChoice;
+  deferredInstall = null;
+  $("installBtn").style.display = "none";
+};
+window.addEventListener("appinstalled", () => { $("installBtn").style.display = "none"; });
 
 // Attempt to rejoin a previous session after a refresh.
 tryAutoReconnect();

@@ -31,10 +31,57 @@ function genCode() {
   return code;
 }
 
+const DISCONNECT_GRACE_MS = 30_000; // drop a player who doesn't return within 30s
+
 const connectedPlayers = (room) => [...room.players.values()].filter((p) => p.connected);
 
 function roomPlayersList(room) {
-  return [...room.players.values()].map((p) => ({ id: p.id, name: p.name, connected: p.connected }));
+  return [...room.players.values()].map((p) => ({
+    id: p.id, name: p.name, avatar: p.avatar, connected: p.connected,
+  }));
+}
+
+// Map of id -> {name, avatar} so clients can show avatars during play.
+function roomMeta(room) {
+  const meta = {};
+  for (const p of room.players.values()) meta[p.id] = { name: p.name, avatar: p.avatar };
+  return meta;
+}
+
+function broadcastScores(room) {
+  io.to(room.code).emit("scores", { scores: room.scores || {} });
+}
+
+// Record a finished round into the room's running scoreboard.
+function recordScores(room) {
+  const g = room.game;
+  if (!g || !g.gameOver || g._recorded) return;
+  g._recorded = true;
+  room.scores = room.scores || {};
+  const bump = (id, field) => {
+    const s = (room.scores[id] = room.scores[id] || { name: id, games: 0, wins: 0, losses: 0, points: 0 });
+    s[field] += 1;
+  };
+  const finished = g.finished || [];
+  const eliminated = g.eliminated || [];
+  const participants = new Set([...finished, ...eliminated]);
+  if (g.loserId) participants.add(g.loserId);
+  for (const id of participants) bump(id, "games");
+  finished.forEach((id, i) => {
+    if (i === 0) bump(id, "wins");
+    // points: 1st gets most; scaled by placement
+    const s = room.scores[id];
+    s.points += Math.max(1, finished.length - i);
+  });
+  if (g.loserId) bump(g.loserId, "losses");
+  for (const id of eliminated) bump(id, "losses");
+  broadcastScores(room);
+}
+
+// Call after any state-broadcasting action to capture a just-finished round.
+function afterAction(room) {
+  broadcastState(room);
+  if (room.game && room.game.gameOver) recordScores(room);
 }
 
 // Send each connected player their personalized state; admins get the god view.
@@ -52,6 +99,7 @@ function broadcastLobby(room) {
   io.to(room.code).emit("lobby", {
     code: room.code,
     players: roomPlayersList(room),
+    meta: roomMeta(room),
     started: !!(room.game && room.game.started),
   });
 }
@@ -68,13 +116,14 @@ io.on("connection", (socket) => {
   socket.on("admin:create", ({ password }, cb) => {
     if (password !== ADMIN_PASSWORD) return cb?.({ ok: false, error: "Wrong admin password." });
     const code = genCode();
-    const room = { code, players: new Map(), adminSockets: new Set(), game: null };
+    const room = { code, players: new Map(), adminSockets: new Set(), game: null, scores: {} };
     rooms.set(code, room);
     room.adminSockets.add(socket.id);
     socket.join(code);
     joined = { code, role: "admin" };
     cb?.({ ok: true, code });
     broadcastLobby(room);
+    broadcastScores(room);
   });
 
   socket.on("admin:watch", ({ password, code }, cb) => {
@@ -86,29 +135,35 @@ io.on("connection", (socket) => {
     joined = { code, role: "admin" };
     cb?.({ ok: true, code });
     broadcastLobby(room);
+    broadcastScores(room);
     if (room.game) socket.emit("state", room.game.stateFor(null, true));
   });
 
   // Player joins OR reconnects by name.
-  socket.on("player:join", ({ code, name }, cb) => {
+  socket.on("player:join", ({ code, name, avatar } = {}, cb) => {
     code = (code || "").toUpperCase().trim();
     name = (name || "").trim().slice(0, 20);
+    avatar = (avatar || "🙂").slice(0, 4);
     if (!name) return cb?.({ ok: false, error: "Enter a name." });
     const room = rooms.get(code);
     if (!room) return cb?.({ ok: false, error: "Invalid access code." });
 
     const existing = room.players.get(name);
     if (existing) {
-      if (existing.connected) {
-        return cb?.({ ok: false, error: "That name is already in use in this room." });
-      }
-      // Reconnect: reattach this socket to the existing seat.
+      // Reconnect / takeover. Claim the seat with the new socket FIRST, then
+      // kick any stale socket — so its late disconnect can't clobber us
+      // (the disconnect guard checks socketId, which now points to us).
+      const staleId = existing.socketId && existing.socketId !== socket.id ? existing.socketId : null;
+      if (existing.removalTimer) { clearTimeout(existing.removalTimer); existing.removalTimer = null; }
       existing.connected = true;
       existing.socketId = socket.id;
+      if (staleId) { const old = io.sockets.sockets.get(staleId); if (old) old.disconnect(true); }
+      if (avatar) existing.avatar = avatar;
       socket.join(code);
       joined = { code, role: "player", id: name };
       cb?.({ ok: true, code, id: name, reconnected: true });
       broadcastLobby(room);
+      broadcastScores(room);
       if (room.game) socket.emit("state", room.game.stateFor(name, false));
       return;
     }
@@ -118,11 +173,28 @@ io.on("connection", (socket) => {
       return cb?.({ ok: false, error: "Game already running — wait for the next round." });
     }
     if (room.players.size >= 8) return cb?.({ ok: false, error: "Room is full (max 8)." });
-    room.players.set(name, { id: name, name, socketId: socket.id, connected: true });
+    room.players.set(name, { id: name, name, avatar, socketId: socket.id, connected: true, removalTimer: null });
     socket.join(code);
     joined = { code, role: "player", id: name };
     cb?.({ ok: true, code, id: name });
     broadcastLobby(room);
+    broadcastScores(room);
+  });
+
+  // ---- Text chat ----
+  socket.on("chat:send", ({ text } = {}) => {
+    if (!joined) return;
+    const room = rooms.get(joined.code);
+    if (!room) return;
+    text = String(text || "").trim().slice(0, 300);
+    if (!text) return;
+    let name = "Admin", avatar = "👑";
+    if (joined.role === "player") {
+      const p = room.players.get(joined.id);
+      name = p?.name || joined.id;
+      avatar = p?.avatar || "🙂";
+    }
+    io.to(room.code).emit("chat:msg", { name, avatar, text, ts: Date.now() });
   });
 
   // Anyone (admin or player) can start / restart.
@@ -156,27 +228,27 @@ io.on("connection", (socket) => {
   socket.on("game:play", ({ cardId, color }, cb) => {
     const room = withGame(cb); if (!room) return;
     const r = room.game.playCard(joined.id, cardId, color);
-    cb?.(r); if (r.ok) broadcastState(room);
+    cb?.(r); if (r.ok) afterAction(room);
   });
   socket.on("game:draw", (_, cb) => {
     const room = withGame(cb); if (!room) return;
     const r = room.game.drawCard(joined.id);
-    cb?.(r); if (r.ok) broadcastState(room);
+    cb?.(r); if (r.ok) afterAction(room);
   });
   socket.on("game:challenge", (_, cb) => {
     const room = withGame(cb); if (!room) return;
     const r = room.game.challenge(joined.id);
-    cb?.(r); if (r.ok) broadcastState(room);
+    cb?.(r); if (r.ok) afterAction(room);
   });
   socket.on("game:pass", (_, cb) => {
     const room = withGame(cb); if (!room) return;
     const r = room.game.pass(joined.id);
-    cb?.(r); if (r.ok) broadcastState(room);
+    cb?.(r); if (r.ok) afterAction(room);
   });
   socket.on("game:uno", (_, cb) => {
     const room = withGame(cb); if (!room) return;
     const r = room.game.callUno(joined.id);
-    cb?.(r); if (r.ok) broadcastState(room);
+    cb?.(r); if (r.ok) afterAction(room);
   });
 
   // ---- Admin god-powers ----
@@ -189,22 +261,22 @@ io.on("connection", (socket) => {
   socket.on("admin:setTop", (spec, cb) => {
     const room = requireAdminGame(cb); if (!room) return;
     const r = room.game.adminSetTopCard(spec || {});
-    cb?.(r); if (r.ok) broadcastState(room);
+    cb?.(r); if (r.ok) afterAction(room);
   });
   socket.on("admin:giveCard", ({ playerId, card } = {}, cb) => {
     const room = requireAdminGame(cb); if (!room) return;
     const r = room.game.adminGiveCard(playerId, card || {});
-    cb?.(r); if (r.ok) broadcastState(room);
+    cb?.(r); if (r.ok) afterAction(room);
   });
   socket.on("admin:removeCard", ({ playerId, cardId } = {}, cb) => {
     const room = requireAdminGame(cb); if (!room) return;
     const r = room.game.adminRemoveCard(playerId, cardId);
-    cb?.(r); if (r.ok) broadcastState(room);
+    cb?.(r); if (r.ok) afterAction(room);
   });
   socket.on("admin:changeCard", ({ playerId, cardId, card } = {}, cb) => {
     const room = requireAdminGame(cb); if (!room) return;
     const r = room.game.adminChangeCard(playerId, cardId, card || {});
-    cb?.(r); if (r.ok) broadcastState(room);
+    cb?.(r); if (r.ok) afterAction(room);
   });
 
   // ---- Voice chat signaling (WebRTC mesh) ----
@@ -248,11 +320,25 @@ io.on("connection", (socket) => {
       room.adminSockets.delete(socket.id);
     } else {
       const p = room.players.get(joined.id);
-      if (p) {
+      // Guard against a reconnect race: if a newer socket already took this
+      // seat, p.socketId won't match — ignore this stale disconnect.
+      if (p && p.socketId === socket.id) {
         if (room.game && room.game.started && !room.game.gameOver) {
-          // Keep their seat so they can reconnect with the same name.
+          // Keep their seat briefly so they can reconnect with the same name.
           p.connected = false;
           p.socketId = null;
+          if (p.removalTimer) clearTimeout(p.removalTimer);
+          p.removalTimer = setTimeout(() => {
+            const cur = room.players.get(joined.id);
+            if (!cur || cur.connected) return; // came back — nothing to do
+            room.players.delete(joined.id);
+            if (room.game && room.game.started && !room.game.gameOver) {
+              room.game.removePlayer(joined.id);
+              afterAction(room);
+            }
+            broadcastLobby(room);
+            maybeCleanup(room);
+          }, DISCONNECT_GRACE_MS);
         } else {
           room.players.delete(joined.id); // lobby: free the slot
         }

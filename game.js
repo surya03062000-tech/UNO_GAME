@@ -341,6 +341,27 @@ export class UnoGame {
     return { ok: false, error: "You can only call UNO with one card left." };
   }
 
+  // Remove a player who left and didn't come back (treated as out).
+  removePlayer(playerId) {
+    if (this.gameOver) return { ok: true };
+    if (!this._isActive(playerId)) return { ok: true };
+    const wasCurrent = this.currentPlayerId === playerId;
+    this.eliminated.push(playerId);
+    if (this._activeCount() <= 1) {
+      this.gameOver = true;
+      this.loserId = this._activeIds()[0] || null;
+      this.lastAction = `${shortName(playerId)} left — game over.`;
+      return { ok: true, gameOver: true };
+    }
+    if (wasCurrent) {
+      this.pendingDraw = 0;
+      this.challengeInfo = null;
+      this._advance(1);
+    }
+    this.lastAction = `${shortName(playerId)} left and was removed.`;
+    return { ok: true };
+  }
+
   // ---- Admin god-powers (silent: they set adminNote, not lastAction) ------
   _makeCard({ color, kind, value }) {
     if (isWildCard(kind)) return { id: newId(), color: "wild", kind };

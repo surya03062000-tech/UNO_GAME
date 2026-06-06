@@ -17,6 +17,11 @@ small in a corner and play while you work.
 - **No finishing on an action card** — your *last* card must be a number. If you play an action/power card as your last card it resolves, but you draw a card and stay in.
 - **🔊 Sound effects** — every card type has its own sound (generated in-browser, no files). Toggle with the 🔊 button.
 - **🎤 Voice chat** — anyone in the room can talk over mic (WebRTC). Mute your mic or cut all incoming audio independently.
+- **💬 Text chat** — in-room chat for everyone, with unread badge when collapsed.
+- **🧑‍🎨 Player avatars** — pick an emoji avatar; it shows on the table, lobby, ranking and scoreboard.
+- **🏆 Scoreboard** — running wins / losses / games / points across rounds, shown in the lobby and at game over.
+- **📲 Installable (PWA)** — install it like a real app on a laptop or phone ("Install app" button / Add to Home Screen) and it works offline-capable.
+- **🔁 Reliable reconnect** — refresh or drop and you reclaim your seat by name (kicks the stale connection). Players who don't return within **30 seconds** are removed from the round automatically.
 - **Draw-card stacking** — facing a `+2`? Stack a `+2` or anything higher (`+4/+6/+8/+10`); the pile grows for the next player. You can only stack equal-or-higher.
 - **Challenge** — when a wild draw card hits you, you can **Challenge** instead of drawing. If the player bluffed (had a matching color), *they* draw the penalty. If it was legal, *you* draw the penalty **+2 extra**.
 - **Elimination play** — empty your hand and you *finish* (ranked 🥇🥈🥉) and watch on. The rest play until only **one player is left** — that last player loses and the game ends. Then **anyone can start a new round**.
@@ -114,6 +119,17 @@ Same idea: `npm install` then `npm start`, set the `ADMIN_PASSWORD` env var, exp
   each other across different networks, that's why — add a TURN server if you need it.
 - Click **🎤 Mic** to join voice, **🔇 Muted** to stop sending your voice, and
   **Audio cut** to stop hearing others. **📞 Leave** disconnects from voice.
+
+## 📲 Installing as an app
+
+The game is a **PWA**, so it installs like a native app:
+
+- **Laptop (Chrome/Edge):** open the deployed `https://…` URL → click the **📲 Install app**
+  button on the home screen, or the install icon in the address bar.
+- **Android (Chrome):** open the URL → menu → **Add to Home screen / Install app**.
+- **iPhone (Safari):** open the URL → Share → **Add to Home Screen**.
+
+Install works only over **HTTPS** (Render gives you that) or `http://localhost`.
 
 ## 🔐 Security notes
 

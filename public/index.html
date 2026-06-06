@@ -2,9 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>UNO — Private Room</title>
   <link rel="stylesheet" href="style.css" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#0f1320" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="UNO" />
 </head>
 <body>
   <div id="app">
@@ -17,9 +23,13 @@
       <div class="card-panel">
         <h2>Join a game</h2>
         <input id="joinName" placeholder="Your name" maxlength="20" />
+        <div class="avatar-pick-label">Pick an avatar</div>
+        <div id="avatarPick" class="avatar-pick"></div>
         <input id="joinCode" placeholder="Access code (e.g. ABC23)" maxlength="5" style="text-transform:uppercase" />
         <button id="joinBtn" class="btn primary">Join Game</button>
       </div>
+
+      <button id="installBtn" class="btn ghost install-btn" style="display:none">📲 Install app on this device</button>
 
       <div class="card-panel admin-panel">
         <h2>👑 Admin</h2>
@@ -45,6 +55,11 @@
       <button id="startBtn" class="btn primary">Start Game</button>
       <p class="hint">Anyone in the room can start once 2+ players have joined.</p>
       <p id="lobbyMsg" class="hint"></p>
+
+      <div class="scoreboard">
+        <h3>🏆 Scoreboard</h3>
+        <table id="lobbyScores" class="score-table"></table>
+      </div>
     </section>
 
     <!-- ============ GAME ============ -->
@@ -99,6 +114,10 @@
       <div id="overPanel" class="over-panel" style="display:none">
         <h2 id="overTitle">🏁 Game Over</h2>
         <ol id="rankList" class="rank-list"></ol>
+        <div class="scoreboard">
+          <h3>🏆 Scoreboard</h3>
+          <table id="gameScores" class="score-table"></table>
+        </div>
         <button id="playAgainBtn" class="btn primary">Play Again</button>
       </div>
 
@@ -138,11 +157,43 @@
       </div>
     </div>
 
+    <!-- Admin: edit a specific player's card -->
+    <div id="cardEditModal" class="modal" style="display:none">
+      <div class="modal-box">
+        <h3 id="cardEditTitle">Edit card</h3>
+        <div class="tool-row" style="justify-content:center">
+          <select id="editColor"></select>
+          <select id="editKind"></select>
+          <select id="editValue"></select>
+        </div>
+        <div class="modal-actions">
+          <button id="editChangeBtn" class="btn small primary">Change to this</button>
+          <button id="editRemoveBtn" class="btn small warn">Remove card</button>
+          <button id="editCancelBtn" class="btn small ghost">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Text chat (visible once you're in a room) -->
+    <div id="chatWidget" class="chat-widget" style="display:none">
+      <div class="chat-head"><span>💬 Chat</span><button id="chatToggle" class="chat-toggle">–</button></div>
+      <div id="chatMessages" class="chat-messages"></div>
+      <form id="chatForm" class="chat-form">
+        <input id="chatInput" placeholder="Type a message…" maxlength="300" autocomplete="off" />
+        <button class="btn tiny primary">Send</button>
+      </form>
+    </div>
+
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="sfx.js"></script>
   <script src="voice.js"></script>
   <script src="client.js"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+    }
+  </script>
 </body>
 </html>
