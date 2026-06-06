@@ -134,6 +134,16 @@ input:focus { outline: 2px solid var(--blue); }
 .turn-banner.my-turn { background: var(--green); animation: pulse 1.2s infinite; }
 @keyframes pulse { 50% { filter: brightness(1.3); } }
 .next-banner { font-size: 12px; color: var(--muted); margin-top: 4px; padding-left: 4px; }
+.av-bar { display: flex; gap: 6px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.av-btn {
+  background: var(--panel2); color: var(--text); border: 1px solid #39425f;
+  border-radius: 8px; padding: 6px 10px; font-size: 13px; cursor: pointer; font-weight: 600;
+}
+.av-btn:hover { filter: brightness(1.2); }
+.av-btn.on { background: var(--green); border-color: var(--green); }
+.av-btn.active { background: var(--blue); border-color: var(--blue); }
+.av-btn.danger { background: var(--red); border-color: var(--red); }
+.av-status { font-size: 12px; color: var(--muted); }
 .pending-pill {
   display: inline-block; background: var(--red); color: #fff; font-weight: 800;
   border-radius: 20px; padding: 2px 10px; font-size: 12px; margin-left: 6px;

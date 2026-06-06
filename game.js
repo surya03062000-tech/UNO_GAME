@@ -7,7 +7,7 @@
 
 const COLORS = ["red", "yellow", "green", "blue"];
 
-const WILD_KINDS = new Set(["wild", "wild4", "draw6", "draw8", "draw10"]);
+const WILD_KINDS = new Set(["wild", "wild4", "draw6", "draw8", "draw10", "skipAll"]);
 const DRAW_AMOUNT = { draw2: 2, draw6: 6, draw8: 8, draw10: 10, wild4: 4 };
 const HAND_LIMIT = 35; // more than this and you're eliminated
 
@@ -35,6 +35,7 @@ export function buildDeck() {
   for (let i = 0; i < 4; i++) deck.push(card({ color: "wild", kind: "draw6" }));
   for (let i = 0; i < 3; i++) deck.push(card({ color: "wild", kind: "draw8" }));
   for (let i = 0; i < 2; i++) deck.push(card({ color: "wild", kind: "draw10" }));
+  for (let i = 0; i < 2; i++) deck.push(card({ color: "wild", kind: "skipAll" }));
   return deck;
 }
 
@@ -243,13 +244,26 @@ export class UnoGame {
     }
     if (drawAmt(card)) this.pendingDraw += drawAmt(card);
 
+    // How far the turn moves. "Skip All" loops past everyone back to the player.
+    let steps = skipNext ? 2 : 1;
+    if (card.kind === "skipAll") steps = Math.max(1, this._activeCount());
+
     if (hand.length === 0) {
+      // House rule: you cannot go out on an action/power card. Play it (the
+      // effect still resolves), but draw a card so you stay in the game.
+      if (card.kind !== "number") {
+        this._drawCards(playerId, 1);
+        this.lastAction = `${shortName(playerId)} can't finish on ${cardLabel(card, chosenColor)} — drew a card!`;
+        this._advance(steps);
+        this._enforceHandLimit(playerId);
+        return { ok: true, blockedFinish: true };
+      }
       const ended = this._registerFinish(playerId);
       if (ended) return { ok: true, finished: true, gameOver: true };
-      this._advance(skipNext ? 2 : 1);
+      this._advance(steps);
       return { ok: true, finished: true };
     }
-    this._advance(skipNext ? 2 : 1);
+    this._advance(steps);
     return { ok: true };
   }
 
@@ -418,7 +432,7 @@ function cardLabel(card, chosenColor) {
   const names = {
     skip: "Skip", reverse: "Reverse", draw2: "Draw 2",
     draw6: "Draw 6", draw8: "Draw 8", draw10: "Draw 10",
-    wild: "Wild", wild4: "Wild Draw 4",
+    wild: "Wild", wild4: "Wild Draw 4", skipAll: "Skip All",
   };
   if (isWild(card)) return `${names[card.kind]}${chosenColor ? ` (→ ${chosenColor})` : ""}`;
   return `${card.color} ${names[card.kind]}`;

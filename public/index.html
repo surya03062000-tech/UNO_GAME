@@ -61,6 +61,15 @@
         </div>
       </header>
 
+      <!-- Sound + voice chat controls -->
+      <div class="av-bar">
+        <button id="soundBtn" class="av-btn" title="Sound on/off">🔊</button>
+        <button id="micBtn" class="av-btn" title="Join voice chat">🎤 Mic</button>
+        <button id="muteBtn" class="av-btn" style="display:none" title="Mute your mic">🔴 Mute</button>
+        <button id="deafenBtn" class="av-btn" style="display:none" title="Cut all incoming audio">🔇 Audio cut</button>
+        <span id="voiceStatus" class="av-status"></span>
+      </div>
+
       <div id="opponents" class="opponents"></div>
 
       <div class="table">
@@ -132,6 +141,8 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
+  <script src="sfx.js"></script>
+  <script src="voice.js"></script>
   <script src="client.js"></script>
 </body>
 </html>

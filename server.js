@@ -207,10 +207,43 @@ io.on("connection", (socket) => {
     cb?.(r); if (r.ok) broadcastState(room);
   });
 
+  // ---- Voice chat signaling (WebRTC mesh) ----
+  // room.voice = Map(socketId -> name). The joining peer initiates offers to
+  // everyone already in the channel; we just relay SDP/ICE between peers.
+  socket.on("voice:join", ({ name } = {}, cb) => {
+    if (!joined) return cb?.({ ok: false, error: "Join a room first." });
+    const room = rooms.get(joined.code);
+    if (!room) return cb?.({ ok: false, error: "Room gone." });
+    room.voice = room.voice || new Map();
+    const peers = [...room.voice.entries()].map(([id, n]) => ({ id, name: n }));
+    room.voice.set(socket.id, name || "Someone");
+    // Tell the newcomer who's already here (they will initiate offers).
+    cb?.({ ok: true, peers });
+    // Tell existing peers a newcomer arrived (they wait for an offer).
+    socket.to(joined.code).emit("voice:peer-joined", { id: socket.id, name: name || "Someone" });
+  });
+
+  socket.on("voice:signal", ({ to, data } = {}) => {
+    if (!to) return;
+    io.to(to).emit("voice:signal", { from: socket.id, data });
+  });
+
+  socket.on("voice:leave", () => {
+    if (!joined) return;
+    const room = rooms.get(joined.code);
+    if (!room || !room.voice) return;
+    room.voice.delete(socket.id);
+    socket.to(joined.code).emit("voice:peer-left", { id: socket.id });
+  });
+
   socket.on("disconnect", () => {
     if (!joined) return;
     const room = rooms.get(joined.code);
     if (!room) return;
+    if (room.voice && room.voice.has(socket.id)) {
+      room.voice.delete(socket.id);
+      socket.to(joined.code).emit("voice:peer-left", { id: socket.id });
+    }
     if (joined.role === "admin") {
       room.adminSockets.delete(socket.id);
     } else {

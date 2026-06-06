@@ -4,6 +4,7 @@ let me = { role: null, id: null, code: null };
 let lastState = null;
 let pendingWildCardId = null;
 let godSelected = null; // {pid, cid} currently selected card in god view
+let prevTopId = null, prevMyTurn = false, prevOver = false; // for sound cues
 
 const $ = (id) => document.getElementById(id);
 const show = (screenId) => {
@@ -18,7 +19,7 @@ const drawAmount = (card) => (card ? DRAW_AMOUNT[card.kind] || 0 : 0);
 const KIND_LABELS = {
   number: (c) => String(c.value), skip: () => "⊘", reverse: () => "⇄",
   draw2: () => "+2", draw6: () => "+6", draw8: () => "+8", draw10: () => "+10",
-  wild: () => "W", wild4: () => "+4",
+  wild: () => "W", wild4: () => "+4", skipAll: () => "Ø",
 };
 const cardSymbol = (card) => (KIND_LABELS[card.kind] || (() => "?"))(card);
 function cardInner(card) {
@@ -51,6 +52,7 @@ function tryAutoReconnect() {
 
 // ================= HOME =================
 $("joinBtn").onclick = () => {
+  SFX.unlock();
   const name = $("joinName").value.trim();
   const code = $("joinCode").value.trim().toUpperCase();
   if (!name || !code) return setErr("Enter your name and the access code.");
@@ -62,6 +64,7 @@ $("joinBtn").onclick = () => {
   });
 };
 $("createBtn").onclick = () => {
+  SFX.unlock();
   const password = $("adminPass").value;
   if (!password) return setErr("Enter admin password.");
   socket.emit("admin:create", { password }, (res) => {
@@ -180,6 +183,16 @@ function renderGame(s) {
     $("adminNote").textContent = s.adminNote ? "📝 " + s.adminNote : "";
     renderGodHands(s);
   } else god.style.display = "none";
+
+  // ---- Sound cues ----
+  if (s.topCard && s.topCard.id !== prevTopId) {
+    if (prevTopId !== null) SFX.forCard(s.topCard);
+    prevTopId = s.topCard.id;
+  }
+  if (myTurn && !prevMyTurn) SFX.play("turn");
+  prevMyTurn = myTurn;
+  if (s.gameOver && !prevOver) SFX.play(meP && meP.isLoser ? "lose" : meP && meP.eliminated ? "eliminate" : "win");
+  prevOver = s.gameOver;
 }
 
 function renderRanking(s) {
@@ -259,7 +272,7 @@ $("drawBtn").onclick = () => {
   });
 };
 $("challengeBtn").onclick = () => socket.emit("game:challenge", {}, (res) => { if (!res.ok) flash(res.error); });
-$("unoBtn").onclick = () => socket.emit("game:uno", {}, (res) => { if (!res.ok) flash(res.error); });
+$("unoBtn").onclick = () => socket.emit("game:uno", {}, (res) => { if (res.ok) SFX.play("uno"); else flash(res.error); });
 $("restartBtn").onclick = () => socket.emit("game:restart", {}, (res) => { if (!res.ok) flash(res.error); });
 $("playAgainBtn").onclick = () => socket.emit("game:restart", {}, (res) => { if (!res.ok) flash(res.error); });
 
@@ -267,7 +280,7 @@ $("playAgainBtn").onclick = () => socket.emit("game:restart", {}, (res) => { if 
 const ALL_COLORS = ["red", "yellow", "green", "blue"];
 const ALL_KINDS = [
   ["number", "Number"], ["skip", "Skip"], ["reverse", "Reverse"], ["draw2", "Draw 2"],
-  ["draw6", "Draw 6"], ["draw8", "Draw 8"], ["draw10", "Draw 10"], ["wild", "Wild"], ["wild4", "Wild +4"],
+  ["draw6", "Draw 6"], ["draw8", "Draw 8"], ["draw10", "Draw 10"], ["wild", "Wild"], ["wild4", "Wild +4"], ["skipAll", "Skip All"],
 ];
 let adminSelectorsReady = false;
 function fillSelect(sel, items) { sel.innerHTML = items.map(([v, l]) => `<option value="${v}">${l ?? v}</option>`).join(""); }
@@ -348,6 +361,43 @@ function flash(msg) {
   $("actionLog").textContent = "⚠ " + msg;
   setTimeout(() => { if (lastState) $("actionLog").textContent = lastState.lastAction; }, 1800);
 }
+
+// ---------- Sound toggle ----------
+function refreshSoundBtn() {
+  const on = SFX.isOn();
+  $("soundBtn").textContent = on ? "🔊" : "🔈";
+  $("soundBtn").classList.toggle("on", on);
+}
+$("soundBtn").onclick = () => { SFX.toggle(); refreshSoundBtn(); };
+refreshSoundBtn();
+
+// ---------- Voice chat ----------
+const voice = createVoice(socket);
+voice.setStatus((st) => {
+  $("micBtn").textContent = st.active ? "📞 Leave" : "🎤 Mic";
+  $("micBtn").classList.toggle("active", st.active);
+  $("muteBtn").style.display = st.active ? "" : "none";
+  $("deafenBtn").style.display = st.active ? "" : "none";
+  $("muteBtn").textContent = st.muted ? "🔇 Muted" : "🎙️ Talking";
+  $("muteBtn").classList.toggle("danger", st.muted);
+  $("deafenBtn").textContent = st.deafened ? "🔇 Audio off" : "🔊 Audio on";
+  $("deafenBtn").classList.toggle("danger", st.deafened);
+  $("voiceStatus").textContent = st.active ? `Voice on · ${st.count} connected` : "";
+});
+
+$("micBtn").onclick = async () => {
+  SFX.unlock();
+  if (voice.isActive()) { voice.stop(); return; }
+  try {
+    await voice.start(me.id || (me.role === "admin" ? "Admin" : "Player"));
+  } catch (e) {
+    flash("Mic permission denied or unavailable.");
+  }
+};
+$("muteBtn").onclick = () => voice.toggleMute();
+$("deafenBtn").onclick = () => voice.toggleDeafen();
+// Leave voice cleanly on tab close.
+window.addEventListener("beforeunload", () => { if (voice.isActive()) voice.stop(); });
 
 // Attempt to rejoin a previous session after a refresh.
 tryAutoReconnect();
