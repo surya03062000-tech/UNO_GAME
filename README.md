@@ -11,11 +11,17 @@ small in a corner and play while you work.
 
 - **Real-time multiplayer** (2–8 players) using Socket.IO
 - **Access-code rooms** — admin creates a room, shares the 5-letter code; only people with the code can join
-- **👑 Admin god view & controls** — admin sees every player's hand live, can **change the discard top card**, and **give/remove cards** from any player. Can also spectate any room with `Watch`.
-- **Full UNO rules** — numbers, Skip, Reverse, Draw 2, Wild, Wild Draw 4, direction, draw pile auto-reshuffle, UNO call
+- **👑 Admin god view & controls** — admin sees every player's hand live, and can **change the discard top card**, **give**, **remove**, or **change** any specific card in any player's hand (e.g. turn their `4` into a `+10`). All admin edits are **silent** — players never see an "admin changed…" message. Admin can also spectate any room with `Watch`.
+- **Full UNO rules** — numbers, Skip, Reverse, Draw 2, Wild, Wild Draw 4, direction, UNO call
 - **Mercy-style extra cards** — **+6, +8, +10** wild draw cards (pick a color, next player draws that many)
-- **Elimination play** — when you empty your hand you *finish* (ranked 🥇🥈🥉). The rest keep playing until only **one player is left** — that last player loses and the game ends. Then **anyone can start a new round**.
-- **Anyone can start** — admin or any player can press Start (2+ players needed)
+- **Draw-card stacking** — facing a `+2`? Stack a `+2` or anything higher (`+4/+6/+8/+10`); the pile grows for the next player. You can only stack equal-or-higher.
+- **Challenge** — when a wild draw card hits you, you can **Challenge** instead of drawing. If the player bluffed (had a matching color), *they* draw the penalty. If it was legal, *you* draw the penalty **+2 extra**.
+- **Elimination play** — empty your hand and you *finish* (ranked 🥇🥈🥉) and watch on. The rest play until only **one player is left** — that last player loses and the game ends. Then **anyone can start a new round**.
+- **35-card overflow** — pile up more than 35 cards and you're **eliminated** on the spot.
+- **Auto reconnect** — refreshed or dropped? Just rejoin with the **same name** and you're back in your seat with your hand. (The browser also auto-reconnects you.)
+- **Deck auto-refill** — when the draw pile empties it reshuffles the discards (or makes a fresh deck) automatically.
+- **Next-turn indicator** — always shows whose turn is coming up next, plus the current stacked draw total.
+- **Anyone can start** — admin or any player can press Start / Play Again (2+ players needed)
 - **Polished card design** — classic UNO oval + corner pips, color gradients
 - **Small-window friendly** UI — works alongside your work on the same laptop
 - **One server**, zero database — easy & free to deploy

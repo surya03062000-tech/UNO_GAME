@@ -50,9 +50,13 @@
     <!-- ============ GAME ============ -->
     <section id="game" class="screen">
       <header class="game-top">
-        <div id="turnBanner" class="turn-banner"></div>
+        <div>
+          <div id="turnBanner" class="turn-banner"></div>
+          <div id="nextBanner" class="next-banner"></div>
+        </div>
         <div class="top-right">
           <span id="roleBadge" class="badge"></span>
+          <button id="challengeBtn" class="btn warn small" style="display:none">Challenge</button>
           <button id="unoBtn" class="btn warn small">UNO!</button>
         </div>
       </header>
@@ -92,6 +96,7 @@
       <!-- Admin god view: everyone's cards + controls -->
       <div id="godView" class="god-view" style="display:none">
         <div class="hand-label">👑 God view & controls</div>
+        <p id="adminNote" class="admin-note"></p>
 
         <div class="admin-tools">
           <div class="tool-box">
