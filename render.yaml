@@ -5,6 +5,7 @@ services:
     name: uno-game
     runtime: node
     plan: free
+    branch: claude/beautiful-archimedes-AnGRc
     buildCommand: npm install
     startCommand: npm start
     envVars:
