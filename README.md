@@ -28,6 +28,14 @@ small in a corner and play while you work.
 - **🎉 Animations & themes** — card play/deal animations, win confetti, and a 🌗 dark/light theme toggle.
 - **💾 Persistence** — scoreboards (and room rules) are saved to disk and reloaded on restart, so the leaderboard survives a server bounce (see note below).
 - **🚪 Leave & kick** — players can leave a room any time (🚪 Leave); the admin can kick anyone from the lobby or the god-view. Leaving/kicking mid-game removes them cleanly from the round.
+- **🤖 AI bot players** — admin can add bots to fill seats (solo practice or top-ups); bots play themselves and auto-call UNO.
+- **📜 Round history** — recent rounds (ranking + who came last) shown in lobby and at game over, persisted with the scoreboard.
+- **🎨 Colorblind mode** — toggle big R/Y/G/B (★ for wild) letters on every card.
+- **🔀 Sort hand** — one-tap sort of your hand by colour then value.
+- **✨ Opponent-play highlight** — the player who just acted flashes, so it's easy to follow.
+- **👑 Admin auto-reconnect** — the admin's god-view comes back automatically after a refresh.
+- **🧹 Auto cleanup** — idle/empty rooms expire after 24h to keep memory tidy.
+- **📱 Mobile-friendly** — larger cards, buttons and tap targets on small screens.
 - **Draw-card stacking** — facing a `+2`? Stack a `+2` or anything higher (`+4/+6/+8/+10`); the pile grows for the next player. You can only stack equal-or-higher.
 - **Challenge** — when a wild draw card hits you, you can **Challenge** instead of drawing. If the player bluffed (had a matching color), *they* draw the penalty. If it was legal, *you* draw the penalty **+2 extra**.
 - **Elimination play** — empty your hand and you *finish* (ranked 🥇🥈🥉) and watch on. The rest play until only **one player is left** — that last player loses and the game ends. Then **anyone can start a new round**.

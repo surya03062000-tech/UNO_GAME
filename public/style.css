@@ -176,6 +176,28 @@ input:focus { outline: 2px solid var(--blue); }
 }
 @keyframes confettiFall { to { transform: translateY(105vh) rotate(720deg); opacity: .9; } }
 
+/* ---------- Colorblind letters ---------- */
+.cb-letter { display: none; }
+html[data-cb="on"] .cb-letter {
+  display: block; position: absolute; z-index: 4; top: 50%; left: 50%;
+  transform: translate(-50%, -50%); font-size: 1.5em; font-weight: 900;
+  color: #111; opacity: .9; pointer-events: none;
+}
+html[data-cb="on"] .uno-card.mini .cb-letter, html[data-cb="on"] .big-card .cb-letter { font-size: 1.2em; }
+
+/* ---------- Round history ---------- */
+.history-list { font-size: 13px; max-height: 200px; overflow-y: auto; }
+.history-row { display: flex; justify-content: space-between; gap: 8px; padding: 5px 6px; border-bottom: 1px solid #2a3450; }
+.history-row:last-child { border-bottom: none; }
+.history-time { color: var(--muted); font-size: 11px; white-space: nowrap; }
+
+/* ---------- Opponent play flash ---------- */
+.opp.flash { animation: oppFlash .9s ease-out; }
+@keyframes oppFlash {
+  0% { box-shadow: 0 0 0 0 rgba(246,199,0,.9); transform: scale(1.08); }
+  100% { box-shadow: 0 0 0 14px rgba(246,199,0,0); transform: scale(1); }
+}
+
 /* ---------- Kick button ---------- */
 .kick-btn { font-size: 11px; padding: 3px 9px; background: var(--red); color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: 700; margin-left: 8px; }
 .kick-btn:hover { filter: brightness(1.15); }
@@ -275,24 +297,31 @@ html[data-theme="light"] .badge, html[data-theme="light"] .av-btn { border-color
 /* Classic UNO card look: white border, tilted oval, corner pips */
 .uno-card, .big-card {
   position: relative;
-  border-radius: 12px;
+  border-radius: 13px;
   border: 4px solid #fff;
   color: #fff;
   font-weight: 900;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 4px 10px rgba(0,0,0,.45), inset 0 0 0 2px rgba(0,0,0,.06);
+  box-shadow: 0 5px 12px rgba(0,0,0,.5), inset 0 0 0 2px rgba(0,0,0,.08);
   overflow: hidden;
   user-select: none;
 }
+/* glossy highlight sweep */
+.uno-card::after, .big-card::after {
+  content: ""; position: absolute; z-index: 1; inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,.35) 0%, rgba(255,255,255,0) 45%);
+  pointer-events: none;
+}
 .uno-card .oval, .big-card .oval {
   position: relative; z-index: 2;
-  width: 64%; height: 78%;
+  width: 66%; height: 80%;
   border-radius: 50%;
-  background: rgba(255,255,255,.92);
+  background: rgba(255,255,255,.95);
   color: inherit;
   display: flex; align-items: center; justify-content: center;
   transform: rotate(-18deg);
   font-size: 1.6em;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,.12);
   -webkit-text-stroke: 0;
   text-shadow: none;
 }
@@ -421,9 +450,20 @@ html[data-theme="light"] .badge, html[data-theme="light"] .av-btn { border-color
 
 #restartBtn { display: block; margin: 16px auto; }
 
-/* Small-window friendly */
-@media (max-width: 480px) {
+/* Small-window / mobile friendly — bigger tap targets */
+@media (max-width: 560px) {
   .logo { font-size: 48px; }
-  .table { gap: 12px; padding: 14px; }
-  .big-card { width: 56px; height: 80px; font-size: 20px; }
+  .table { gap: 14px; padding: 16px; }
+  .big-card { width: 64px; height: 92px; font-size: 22px; }
+  /* Larger hand cards & spacing so they're easy to tap */
+  .hand { gap: 10px; }
+  .uno-card { width: 64px; height: 92px; font-size: 22px; }
+  .uno-card.playable:hover { transform: translateY(-10px); }
+  .btn { padding: 13px 16px; font-size: 16px; }
+  .btn.small { padding: 11px 16px; font-size: 15px; }
+  .av-btn { padding: 9px 12px; font-size: 14px; }
+  .opp { min-width: 84px; padding: 10px 12px; }
+  .catch-btn, .kick-btn { padding: 6px 12px; font-size: 13px; }
+  .drawBtn, #drawBtn { min-height: 44px; }
+  input, .modal-box select, .tool-row select { font-size: 16px; } /* avoid iOS zoom */
 }

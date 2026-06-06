@@ -53,6 +53,7 @@
       <p class="hint">Share this code with people you want to let in.</p>
       <ul id="playerList" class="player-list"></ul>
       <button id="startBtn" class="btn primary">Start Game</button>
+      <button id="addBotBtn" class="btn dark small" style="display:none;margin:8px auto">🤖 Add bot</button>
       <button id="lobbyLeaveBtn" class="btn ghost small" style="margin:8px auto;display:block">🚪 Leave room</button>
       <p class="hint">Anyone in the room can start once 2+ players have joined.</p>
       <p id="lobbyMsg" class="hint"></p>
@@ -65,6 +66,10 @@
       <div class="scoreboard">
         <h3>🏆 Scoreboard</h3>
         <table id="lobbyScores" class="score-table"></table>
+      </div>
+      <div class="scoreboard" id="historyPanel" style="display:none">
+        <h3>📜 Recent rounds</h3>
+        <div id="lobbyHistory" class="history-list"></div>
       </div>
     </section>
 
@@ -87,6 +92,8 @@
       <!-- Sound + voice chat controls -->
       <div class="av-bar">
         <button id="soundBtn" class="av-btn" title="Sound on/off">🔊</button>
+        <button id="cbBtn" class="av-btn" title="Colorblind mode">🎨 CB</button>
+        <button id="sortBtn" class="av-btn" title="Sort your hand by color">🔀 Sort</button>
         <button id="micBtn" class="av-btn" title="Join voice chat">🎤 Mic</button>
         <button id="muteBtn" class="av-btn" style="display:none" title="Mute your mic">🔴 Mute</button>
         <button id="deafenBtn" class="av-btn" style="display:none" title="Cut all incoming audio">🔇 Audio cut</button>
@@ -126,6 +133,10 @@
         <div class="scoreboard">
           <h3>🏆 Scoreboard</h3>
           <table id="gameScores" class="score-table"></table>
+        </div>
+        <div class="scoreboard">
+          <h3>📜 Recent rounds</h3>
+          <div id="gameHistory" class="history-list"></div>
         </div>
         <button id="playAgainBtn" class="btn primary">Play Again</button>
       </div>

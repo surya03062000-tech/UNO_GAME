@@ -5,19 +5,38 @@ let lastState = null;
 let pendingWildCardId = null;
 let cardEdit = null; // {pid, cid} card being edited in the admin modal
 let prevTopId = null, prevMyTurn = false, prevOver = false; // for sound cues
+let lastActorSeen = null; // for opponent-play highlight
 let playerMeta = {}; // id -> {name, avatar}
 const avatarFor = (id) => (playerMeta[id] && playerMeta[id].avatar) || "🙂";
 let turnDeadline = null, latestSettings = null;
 
-// ---- Theme ----
-(function initTheme() {
-  const t = localStorage.getItem("uno_theme") || "dark";
-  document.documentElement.setAttribute("data-theme", t);
+// ---- Theme / colorblind / sort prefs ----
+(function initPrefs() {
+  document.documentElement.setAttribute("data-theme", localStorage.getItem("uno_theme") || "dark");
+  if (localStorage.getItem("uno_cb") === "on") document.documentElement.setAttribute("data-cb", "on");
 })();
 function toggleTheme() {
   const cur = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
   document.documentElement.setAttribute("data-theme", cur);
   localStorage.setItem("uno_theme", cur);
+}
+function toggleCB() {
+  const on = document.documentElement.getAttribute("data-cb") === "on";
+  if (on) { document.documentElement.removeAttribute("data-cb"); localStorage.setItem("uno_cb", "off"); }
+  else { document.documentElement.setAttribute("data-cb", "on"); localStorage.setItem("uno_cb", "on"); }
+}
+let sortHand = localStorage.getItem("uno_sort") === "on";
+function toggleSort() {
+  sortHand = !sortHand;
+  localStorage.setItem("uno_sort", sortHand ? "on" : "off");
+  if (lastState) renderGame(lastState);
+}
+const COLOR_ORDER = { red: 0, yellow: 1, green: 2, blue: 3, wild: 4 };
+function sortedHand(cards) {
+  return [...cards].sort((a, b) =>
+    (COLOR_ORDER[a.color] - COLOR_ORDER[b.color]) ||
+    ((a.value ?? 50) - (b.value ?? 50)) ||
+    a.kind.localeCompare(b.kind));
 }
 
 // ---- Turn timer countdown ----
@@ -46,9 +65,11 @@ const KIND_LABELS = {
   wild: () => "W", wild4: () => "+4", skipAll: () => "Ø",
 };
 const cardSymbol = (card) => (KIND_LABELS[card.kind] || (() => "?"))(card);
+const CB_LETTER = { red: "R", yellow: "Y", green: "G", blue: "B", wild: "★" };
 function cardInner(card) {
   const s = cardSymbol(card);
-  return `<span class="corner tl">${s}</span><span class="oval"><span>${s}</span></span><span class="corner br">${s}</span>`;
+  const cb = `<span class="cb-letter">${CB_LETTER[card.color] || "★"}</span>`;
+  return `${cb}<span class="corner tl">${s}</span><span class="oval"><span>${s}</span></span><span class="corner br">${s}</span>`;
 }
 
 // ---- Avatar picker ----
@@ -76,7 +97,9 @@ buildAvatarPicker();
 const SAVE_KEY = "uno_session";
 function saveSession() {
   if (me.role === "player" && me.code && me.id) {
-    localStorage.setItem(SAVE_KEY, JSON.stringify({ code: me.code, name: me.id, avatar: me.avatar }));
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ role: "player", code: me.code, name: me.id, avatar: me.avatar }));
+  } else if (me.role === "admin" && me.code && me.adminPass) {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ role: "admin", code: me.code, pass: me.adminPass }));
   }
 }
 function clearSession() { localStorage.removeItem(SAVE_KEY); }
@@ -84,12 +107,19 @@ function tryAutoReconnect() {
   const raw = localStorage.getItem(SAVE_KEY);
   if (!raw) return;
   try {
-    const { code, name, avatar } = JSON.parse(raw);
-    if (!code || !name) return;
-    $("joinName").value = name;
-    $("joinCode").value = code;
-    socket.emit("player:join", { code, name, avatar: avatar || chosenAvatar }, (res) => {
-      if (res.ok) { me = { role: "player", id: res.id, code: res.code, avatar: avatar || chosenAvatar }; showChat(); enterLobby(); }
+    const s = JSON.parse(raw);
+    if (s.role === "admin" && s.code && s.pass) {
+      socket.emit("admin:watch", { password: s.pass, code: s.code }, (res) => {
+        if (res.ok) { me = { role: "admin", code: res.code, avatar: "👑", adminPass: s.pass }; showChat(); enterLobby(); }
+        else clearSession();
+      });
+      return;
+    }
+    if (!s.code || !s.name) return;
+    $("joinName").value = s.name;
+    $("joinCode").value = s.code;
+    socket.emit("player:join", { code: s.code, name: s.name, avatar: s.avatar || chosenAvatar }, (res) => {
+      if (res.ok) { me = { role: "player", id: res.id, code: res.code, avatar: s.avatar || chosenAvatar }; showChat(); enterLobby(); }
       else clearSession();
     });
   } catch { clearSession(); }
@@ -115,7 +145,7 @@ $("createBtn").onclick = () => {
   if (!password) return setErr("Enter admin password.");
   socket.emit("admin:create", { password }, (res) => {
     if (!res.ok) return setErr(res.error);
-    me = { role: "admin", code: res.code, avatar: "👑" }; showChat(); enterLobby();
+    me = { role: "admin", code: res.code, avatar: "👑", adminPass: password }; saveSession(); showChat(); enterLobby();
   });
 };
 $("watchBtn").onclick = () => {
@@ -124,13 +154,18 @@ $("watchBtn").onclick = () => {
   if (!password || !code) return setErr("Enter admin password and room code.");
   socket.emit("admin:watch", { password, code }, (res) => {
     if (!res.ok) return setErr(res.error);
-    me = { role: "admin", code: res.code, avatar: "👑" }; showChat(); enterLobby();
+    me = { role: "admin", code: res.code, avatar: "👑", adminPass: password }; saveSession(); showChat(); enterLobby();
   });
 };
 function setErr(msg) { $("homeError").textContent = msg || ""; }
 
 // ================= LOBBY =================
-function enterLobby() { show("lobby"); $("lobbyCode").textContent = me.code; }
+function enterLobby() {
+  show("lobby");
+  $("lobbyCode").textContent = me.code;
+  $("addBotBtn").style.display = me.role === "admin" ? "block" : "none";
+}
+$("addBotBtn").onclick = () => socket.emit("admin:addBot", {}, (r) => { if (!r.ok) $("lobbyMsg").textContent = r.error; });
 $("copyCode").onclick = () => {
   navigator.clipboard?.writeText(me.code);
   $("copyCode").textContent = "Copied!";
@@ -203,9 +238,28 @@ function saveSetting(key, value) {
   });
 }
 
-// ---- Scoreboard ----
-let latestScores = {};
-socket.on("scores", ({ scores }) => { latestScores = scores || {}; renderScores(); });
+// ---- Scoreboard + round history ----
+let latestScores = {}, latestHistory = [];
+socket.on("scores", ({ scores, history }) => {
+  latestScores = scores || {};
+  latestHistory = history || [];
+  renderScores();
+  renderHistory();
+});
+function renderHistory() {
+  const medals = ["🥇", "🥈", "🥉"];
+  const html = latestHistory.length
+    ? latestHistory.map((h) => {
+        const rank = (h.ranking || []).map((id, i) => `${medals[i] || "🏅"}${avatarFor(id)}${shortName(id)}`).join(" ");
+        const lost = h.loser ? ` · 💀${avatarFor(h.loser)}${shortName(h.loser)}` : "";
+        const t = new Date(h.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        return `<div class="history-row"><span>${rank}${lost}</span><span class="history-time">${t}</span></div>`;
+      }).join("")
+    : `<div class="score-empty">No rounds played yet.</div>`;
+  ["lobbyHistory", "gameHistory"].forEach((id) => { const el = $(id); if (el) el.innerHTML = html; });
+  const panel = $("historyPanel");
+  if (panel) panel.style.display = latestHistory.length ? "block" : "none";
+}
 function renderScores() {
   const rows = Object.values(latestScores).sort((a, b) => b.points - a.points || b.wins - a.wins);
   const html = rows.length
@@ -239,12 +293,14 @@ function renderGame(s) {
   $("nextBanner").innerHTML = nextTxt + (s.pendingDraw ? `<span class="pending-pill">Stacked +${s.pendingDraw}</span>` : "");
 
   // Opponents
+  let flashActor = null;
+  if (s.lastActorId && s.lastActorId !== lastActorSeen) { flashActor = s.lastActorId; lastActorSeen = s.lastActorId; }
   const opp = $("opponents");
   opp.innerHTML = "";
   s.players.forEach((p) => {
     if (!isAdmin && p.id === me.id) return;
     const d = document.createElement("div");
-    d.className = "opp" + (p.isCurrent ? " current" : "") + (p.finished || p.eliminated ? " finished" : "") + (p.isLoser ? " loser" : "");
+    d.className = "opp" + (p.isCurrent ? " current" : "") + (p.finished || p.eliminated ? " finished" : "") + (p.isLoser ? " loser" : "") + (p.id === flashActor ? " flash" : "");
     const canCatch = !s.gameOver && p.id !== me.id && !p.finished && !p.eliminated && p.handCount === 1 && !p.saidUno;
     d.innerHTML = `<div class="avatar">${avatarFor(p.id)}</div>
       <div class="name">${shortName(p.id)}</div>
@@ -280,7 +336,8 @@ function renderGame(s) {
     myHandWrap.style.display = "none";
   } else {
     myHandWrap.style.display = "block";
-    renderHand($("myHand"), meP ? meP.hand : [], myTurn, s);
+    const myCards = meP ? (sortHand ? sortedHand(meP.hand) : meP.hand) : [];
+    renderHand($("myHand"), myCards, myTurn, s);
   }
   $("unoBtn").style.display = !isAdmin && meP && !iAmFinished && meP.handCount <= 2 ? "" : "none";
 
@@ -533,6 +590,8 @@ function refreshSoundBtn() {
 $("soundBtn").onclick = () => { SFX.toggle(); refreshSoundBtn(); };
 refreshSoundBtn();
 $("themeBtn").onclick = toggleTheme;
+$("cbBtn").onclick = toggleCB;
+$("sortBtn").onclick = toggleSort;
 
 // ---------- Voice chat ----------
 const voice = createVoice(socket);

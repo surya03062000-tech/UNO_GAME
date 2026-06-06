@@ -43,8 +43,8 @@ function persist() {
     try {
       const out = {};
       for (const [code, room] of rooms) {
-        if (Object.keys(room.scores || {}).length === 0) continue;
-        out[code] = { scores: room.scores, meta: room.meta || {}, settings: room.settings };
+        if (Object.keys(room.scores || {}).length === 0 && (room.history || []).length === 0) continue;
+        out[code] = { scores: room.scores, meta: room.meta || {}, settings: room.settings, history: room.history || [] };
       }
       fs.mkdirSync(DATA_DIR, { recursive: true });
       fs.writeFileSync(DATA_FILE, JSON.stringify(out));
@@ -71,9 +71,9 @@ function loadStore() {
     for (const [code, r] of Object.entries(data)) {
       rooms.set(code, {
         code, players: new Map(), adminSockets: new Set(), game: null,
-        scores: r.scores || {}, meta: r.meta || {},
+        scores: r.scores || {}, meta: r.meta || {}, history: r.history || [],
         settings: { ...DEFAULT_SETTINGS, ...(r.settings || {}) },
-        turnTimer: null, turnDeadline: null,
+        turnTimer: null, turnDeadline: null, botTimer: null, lastActive: Date.now(),
       });
     }
     console.log(`Loaded ${rooms.size} persisted room(s) from disk.`);
@@ -91,8 +91,39 @@ function genCode() {
 }
 
 const DISCONNECT_GRACE_MS = 30_000; // drop a player who doesn't return within 30s
+const ROOM_TTL_MS = 24 * 60 * 60 * 1000; // dormant rooms expire after 24h
+const BOT_DELAY_MS = 1100; // how long a bot "thinks" before acting
 
 const connectedPlayers = (room) => [...room.players.values()].filter((p) => p.connected);
+const humanConnected = (room) => [...room.players.values()].filter((p) => p.connected && !p.isBot);
+const touch = (room) => { room.lastActive = Date.now(); };
+
+let botSeq = 0;
+function makeBot(room) {
+  const names = ["Robo", "Chip", "Byte", "Ada", "Neo", "Pixel", "Echo", "Dot"];
+  let name;
+  do { name = "🤖 " + names[botSeq % names.length] + (botSeq >= names.length ? botSeq : ""); botSeq++; }
+  while (room.players.has(name));
+  return { id: name, name, avatar: "🤖", isBot: true, socketId: null, connected: true, removalTimer: null };
+}
+
+// If it's a bot's turn, schedule its move. Re-armed on every state broadcast.
+function scheduleBots(room) {
+  if (room.botTimer) { clearTimeout(room.botTimer); room.botTimer = null; }
+  const g = room.game;
+  if (!g || !g.started || g.gameOver) return;
+  const cur = room.players.get(g.currentPlayerId);
+  if (!cur || !cur.isBot) return;
+  room.botTimer = setTimeout(() => {
+    const game = room.game;
+    if (!game || game.gameOver) return;
+    const id = game.currentPlayerId;
+    const p = room.players.get(id);
+    if (!p || !p.isBot) return;
+    game.autoMove(id);
+    afterAction(room);
+  }, BOT_DELAY_MS);
+}
 
 function roomPlayersList(room) {
   return [...room.players.values()].map((p) => ({
@@ -127,7 +158,7 @@ function armTurnTimer(room) {
 }
 
 function broadcastScores(room) {
-  io.to(room.code).emit("scores", { scores: room.scores || {} });
+  io.to(room.code).emit("scores", { scores: room.scores || {}, history: room.history || [] });
 }
 
 // Record a finished round into the room's running scoreboard.
@@ -153,6 +184,10 @@ function recordScores(room) {
   });
   if (g.loserId) bump(g.loserId, "losses");
   for (const id of eliminated) bump(id, "losses");
+  // Round history (most recent first, capped).
+  room.history = room.history || [];
+  room.history.unshift({ ts: Date.now(), ranking: finished.slice(), eliminated: eliminated.slice(), loser: g.loserId });
+  room.history = room.history.slice(0, 25);
   broadcastScores(room);
   persist();
 }
@@ -166,7 +201,9 @@ function afterAction(room) {
 // Send each connected player their personalized state; admins get the god view.
 function broadcastState(room) {
   if (!room.game) return;
+  touch(room);
   armTurnTimer(room);
+  scheduleBots(room);
   const extra = { turnDeadline: room.turnDeadline, turnSeconds: room.settings?.turnSeconds || 0 };
   for (const p of room.players.values()) {
     if (p.connected && p.socketId) io.to(p.socketId).emit("state", { ...room.game.stateFor(p.id, false), ...extra });
@@ -177,6 +214,7 @@ function broadcastState(room) {
 }
 
 function broadcastLobby(room) {
+  touch(room);
   io.to(room.code).emit("lobby", {
     code: room.code,
     players: roomPlayersList(room),
@@ -187,14 +225,33 @@ function broadcastLobby(room) {
 }
 
 function maybeCleanup(room) {
-  if (connectedPlayers(room).length === 0 && room.adminSockets.size === 0) {
+  // A room is dormant when no humans and no admins are connected (bots don't count).
+  if (humanConnected(room).length === 0 && room.adminSockets.size === 0) {
     if (room.turnTimer) { clearTimeout(room.turnTimer); room.turnTimer = null; }
-    // Keep dormant rooms that have a scoreboard so scores persist for the code.
-    if (Object.keys(room.scores || {}).length === 0) rooms.delete(room.code);
-    else room.game = null;
+    if (room.botTimer) { clearTimeout(room.botTimer); room.botTimer = null; }
+    // Drop the live game + bots; keep scores/history for the code if any.
+    room.game = null;
+    for (const [id, p] of [...room.players]) if (p.isBot) room.players.delete(id);
+    if (Object.keys(room.scores || {}).length === 0 && (room.history || []).length === 0) {
+      rooms.delete(room.code);
+    }
     persist();
   }
 }
+
+// Periodically expire dormant rooms that haven't been touched in a long time.
+setInterval(() => {
+  const now = Date.now();
+  for (const [code, room] of [...rooms]) {
+    if (humanConnected(room).length === 0 && room.adminSockets.size === 0 &&
+        now - (room.lastActive || 0) > ROOM_TTL_MS) {
+      if (room.turnTimer) clearTimeout(room.turnTimer);
+      if (room.botTimer) clearTimeout(room.botTimer);
+      rooms.delete(code);
+    }
+  }
+  persist();
+}, 30 * 60 * 1000);
 
 io.on("connection", (socket) => {
   let joined = null; // { code, role, id }
@@ -204,8 +261,8 @@ io.on("connection", (socket) => {
     const code = genCode();
     const room = {
       code, players: new Map(), adminSockets: new Set(), game: null,
-      scores: {}, meta: {}, settings: { ...DEFAULT_SETTINGS },
-      turnTimer: null, turnDeadline: null,
+      scores: {}, meta: {}, history: [], settings: { ...DEFAULT_SETTINGS },
+      turnTimer: null, turnDeadline: null, botTimer: null, lastActive: Date.now(),
     };
     rooms.set(code, room);
     room.adminSockets.add(socket.id);
@@ -325,6 +382,31 @@ io.on("connection", (socket) => {
     cb?.({ ok: true, settings: room.settings });
     broadcastLobby(room);
     persist();
+  });
+
+  // Admin adds/removes AI bot players (only before a game is running).
+  socket.on("admin:addBot", (_, cb) => {
+    if (!joined || joined.role !== "admin") return cb?.({ ok: false, error: "Admin only." });
+    const room = rooms.get(joined.code);
+    if (!room) return cb?.({ ok: false, error: "Room gone." });
+    if (room.game && room.game.started && !room.game.gameOver) return cb?.({ ok: false, error: "Can't add bots mid-game." });
+    if (room.players.size >= 8) return cb?.({ ok: false, error: "Room is full (max 8)." });
+    const bot = makeBot(room);
+    room.players.set(bot.id, bot);
+    updateMeta(room, bot);
+    cb?.({ ok: true });
+    broadcastLobby(room);
+  });
+  socket.on("admin:removeBot", ({ playerId } = {}, cb) => {
+    if (!joined || joined.role !== "admin") return cb?.({ ok: false, error: "Admin only." });
+    const room = rooms.get(joined.code);
+    if (!room) return cb?.({ ok: false, error: "Room gone." });
+    const p = room.players.get(playerId);
+    if (!p || !p.isBot) return cb?.({ ok: false, error: "Not a bot." });
+    room.players.delete(playerId);
+    if (room.game && room.game.started && !room.game.gameOver) { room.game.removePlayer(playerId); afterAction(room); }
+    cb?.({ ok: true });
+    broadcastLobby(room);
   });
 
   const withGame = (cb) => {

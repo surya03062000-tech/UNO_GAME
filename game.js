@@ -83,6 +83,7 @@ export class UnoGame {
     this.gameOver = false;
     this.loserId = null;
     this.lastAction = "Game starting…";
+    this.lastActorId = null;  // who acted most recently (for UI highlight)
     this.adminNote = "";      // only shown in god view
     this.unoCalled = {};
     this.challengeInfo = null; // { player, illegal } for the current pending wild-draw
@@ -234,6 +235,7 @@ export class UnoGame {
 
   _applyPlay(playerId, idx, card, chosenColor) {
     const hand = this.hands[playerId];
+    this.lastActorId = playerId;
     const prevColor = this.activeColor;
     hand.splice(idx, 1);
     this.discard.push(card);
@@ -285,6 +287,7 @@ export class UnoGame {
     if (this.gameOver) return { ok: false, error: "Game already over." };
     if (!this._isActive(playerId)) return { ok: false, error: "You're out of this round." };
     if (playerId !== this.currentPlayerId) return { ok: false, error: "Not your turn." };
+    this.lastActorId = playerId;
 
     if (this.pendingDraw > 0) {
       const n = this.pendingDraw;
@@ -373,6 +376,40 @@ export class UnoGame {
       return { ok: true };
     }
     return { ok: false, error: "You can only call UNO with one card left." };
+  }
+
+  // Automatic move for bots (and could back the turn timer). Picks a sensible
+  // card to play, stacks/draws as needed, and auto-calls UNO.
+  autoMove(playerId) {
+    if (this.gameOver || playerId !== this.currentPlayerId) return { ok: false };
+    const hand = this.hands[playerId] || [];
+    const bestColor = () => {
+      const cnt = { red: 0, yellow: 0, green: 0, blue: 0 };
+      for (const c of hand) if (c.color in cnt) cnt[c.color]++;
+      return Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0] || "red";
+    };
+    const autoUno = () => { if (this.hands[playerId]?.length === 1) this.callUno(playerId); };
+
+    if (this.pendingDraw > 0) {
+      if (this.options.stacking) {
+        const topAmt = drawAmt(this.topCard);
+        const stack = hand.find((c) => drawAmt(c) >= topAmt && drawAmt(c) > 0);
+        if (stack) { const r = this.playCard(playerId, stack.id, isWild(stack) ? bestColor() : null); autoUno(); return r; }
+      }
+      return this.drawCard(playerId);
+    }
+
+    const playable = hand.filter((c) => canPlay(c, this.topCard, this.activeColor));
+    const nonWild = playable.filter((c) => !isWild(c));
+    const choice = nonWild[0] || playable[0];
+    if (choice) { const r = this.playCard(playerId, choice.id, isWild(choice) ? bestColor() : null); autoUno(); return r; }
+
+    const r = this.drawCard(playerId);
+    if (r.canPlayDrawn) {
+      const c = this.hands[playerId].find((x) => x.id === r.drawnCardId);
+      if (c) { const r2 = this.playCard(playerId, c.id, isWild(c) ? bestColor() : null); autoUno(); return r2; }
+    }
+    return r;
   }
 
   // Remove a player who left and didn't come back (treated as out).
@@ -470,6 +507,7 @@ export class UnoGame {
       canChallenge: this.pendingDraw > 0 && !!this.challengeInfo,
       gameOver: this.gameOver,
       loserId: this.loserId,
+      lastActorId: this.lastActorId,
       finishOrder: this.finished.slice(),
       eliminatedOrder: this.eliminated.slice(),
       lastAction: this.lastAction,
