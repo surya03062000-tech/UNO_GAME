@@ -642,3 +642,12 @@ html[data-theme="light"] #game.active {
   0% { box-shadow: 0 0 0 0 rgba(246,199,0,.9); }
   100% { box-shadow: 0 0 0 16px rgba(246,199,0,0); }
 }
+
+/* Admin kick button on each table seat */
+.seats .opp .seat-kick {
+  position: absolute; top: -8px; right: -8px;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--red); color: #fff; border: 2px solid #fff;
+  font-size: 12px; font-weight: 900; line-height: 1; cursor: pointer; padding: 0;
+}
+.seats .opp .seat-kick:hover { filter: brightness(1.15); }

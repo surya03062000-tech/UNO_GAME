@@ -200,6 +200,7 @@ socket.on("lobby", (data) => {
 // ---- House-rules settings panel ----
 const SETTING_DEFS = [
   { key: "turnSeconds", label: "Turn timer (sec, 0=off)", type: "number", min: 0, max: 120 },
+  { key: "kickAfterMisses", label: "Auto-kick after N missed turns (0=off)", type: "number", min: 0, max: 10 },
   { key: "startingHand", label: "Starting cards", type: "number", min: 1, max: 15 },
   { key: "stacking", label: "Allow +draw stacking", type: "bool" },
   { key: "drawToMatch", label: "Draw until playable", type: "bool" },
@@ -311,9 +312,12 @@ function renderGame(s) {
       ${p.eliminated ? `<div class="uno-tag">💀 OUT</div>` : p.finished ? `<div class="place-tag">#${p.place} done</div>` : ""}
       ${p.isLoser ? `<div class="uno-tag">LAST</div>` : ""}
       ${p.saidUno && !p.finished ? '<div class="uno-tag">UNO</div>' : ""}
-      ${canCatch ? `<button class="catch-btn" data-target="${p.id}">Catch!</button>` : ""}`;
+      ${canCatch ? `<button class="catch-btn" data-target="${p.id}">Catch!</button>` : ""}
+      ${isAdmin ? `<button class="seat-kick" title="Kick" data-pid="${p.id}">✕</button>` : ""}`;
     const cbtn = d.querySelector(".catch-btn");
     if (cbtn) cbtn.onclick = () => socket.emit("game:catch", { targetId: p.id }, (r) => { if (!r.ok) flash(r.error); });
+    const kb = d.querySelector(".seat-kick");
+    if (kb) kb.onclick = () => kickPlayer(p.id);
     // Position around the top arc of the felt (player sits at the bottom).
     const t = (i + 1) / (n + 1);
     const theta = Math.PI * (1 - t);
@@ -724,10 +728,12 @@ function leaveRoom() {
 $("leaveBtn").onclick = leaveRoom;
 $("lobbyLeaveBtn").onclick = leaveRoom;
 
-socket.on("kicked", () => {
+socket.on("kicked", (info) => {
   clearSession();
   if (voice.isActive()) voice.stop();
-  alert("You were removed from the room by the admin.");
+  alert(info && info.reason === "inactivity"
+    ? "You were removed for missing too many turns."
+    : "You were removed from the room by the admin.");
   location.reload();
 });
 

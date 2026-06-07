@@ -20,12 +20,14 @@ const DEFAULT_SETTINGS = {
   mercy: true,
   skipAll: true,
   unoCatch: true,
+  kickAfterMisses: 3,  // auto-remove a player after N missed (timed-out) turns; 0 = never
 };
 
 function sanitizeSettings(patch = {}) {
   const s = {};
   if (patch.turnSeconds !== undefined) s.turnSeconds = Math.max(0, Math.min(120, Number(patch.turnSeconds) || 0));
   if (patch.startingHand !== undefined) s.startingHand = Math.max(1, Math.min(15, Number(patch.startingHand) || 7));
+  if (patch.kickAfterMisses !== undefined) s.kickAfterMisses = Math.max(0, Math.min(10, Number(patch.kickAfterMisses) || 0));
   for (const k of ["stacking", "drawToMatch", "mercy", "skipAll", "unoCatch"]) {
     if (patch[k] !== undefined) s[k] = !!patch[k];
   }
@@ -138,8 +140,23 @@ function updateMeta(room, p) {
 }
 function roomMeta(room) { return room.meta || {}; }
 
+// Remove a player from a room (and from any running game). Module-level so the
+// turn timer and the admin-kick handler can both use it.
+function removePlayerFromRoom(room, playerId) {
+  const p = room.players.get(playerId);
+  if (p && p.removalTimer) { clearTimeout(p.removalTimer); p.removalTimer = null; }
+  room.players.delete(playerId);
+  if (room.game && room.game.started && !room.game.gameOver) {
+    room.game.removePlayer(playerId);
+    afterAction(room);
+  }
+  broadcastLobby(room);
+  maybeCleanup(room);
+}
+
 // Arm/refresh the per-turn auto-play timer. On timeout the current player draws
-// (and passes if needed) so a slow/away player can't stall the game.
+// (and passes if needed) so a slow/away player can't stall the game. After
+// `kickAfterMisses` consecutive missed turns the player is removed entirely.
 function armTurnTimer(room) {
   if (room.turnTimer) { clearTimeout(room.turnTimer); room.turnTimer = null; }
   room.turnDeadline = null;
@@ -151,6 +168,17 @@ function armTurnTimer(room) {
     const game = room.game;
     if (!game || game.gameOver) return;
     const cur = game.currentPlayerId;
+    const p = room.players.get(cur);
+    const threshold = room.settings?.kickAfterMisses || 0;
+    if (p && !p.isBot && threshold > 0) {
+      p.misses = (p.misses || 0) + 1;
+      if (p.misses >= threshold) {
+        if (p.socketId) { const s = io.sockets.sockets.get(p.socketId); if (s) s.emit("kicked", { reason: "inactivity" }); }
+        io.to(room.code).emit("chat:msg", { name: "System", avatar: "⏱️", text: `${p.name} was removed for missing ${threshold} turns.`, ts: Date.now() });
+        removePlayerFromRoom(room, cur);
+        return;
+      }
+    }
     const r = game.drawCard(cur);
     if (r && r.canPlayDrawn) game.pass(cur);
     afterAction(room);
@@ -324,6 +352,7 @@ io.on("connection", (socket) => {
       if (existing.removalTimer) { clearTimeout(existing.removalTimer); existing.removalTimer = null; }
       existing.connected = true;
       existing.socketId = socket.id;
+      existing.misses = 0;
       if (staleId) { const old = io.sockets.sockets.get(staleId); if (old) old.disconnect(true); }
       if (avatar) existing.avatar = avatar;
       updateMeta(room, existing);
@@ -342,7 +371,7 @@ io.on("connection", (socket) => {
       return cb?.({ ok: false, error: "Game already running — wait for the next round." });
     }
     if (room.players.size >= 8) return cb?.({ ok: false, error: "Room is full (max 8)." });
-    const entry = { id: name, name, avatar, socketId: socket.id, connected: true, removalTimer: null };
+    const entry = { id: name, name, avatar, socketId: socket.id, connected: true, removalTimer: null, misses: 0 };
     room.players.set(name, entry);
     updateMeta(room, entry);
     socket.join(code);
@@ -461,6 +490,8 @@ io.on("connection", (socket) => {
     if (!joined) return null;
     const room = rooms.get(joined.code);
     if (!room || !room.game) { cb?.({ ok: false, error: "No active game." }); return null; }
+    // The player is actively taking a turn — reset their missed-turn counter.
+    if (joined.role === "player") { const p = room.players.get(joined.id); if (p) p.misses = 0; }
     return room;
   };
 
@@ -497,17 +528,7 @@ io.on("connection", (socket) => {
   });
 
   // Remove a player from a room (out of any running game too).
-  function dropPlayer(room, playerId) {
-    const p = room.players.get(playerId);
-    if (p && p.removalTimer) { clearTimeout(p.removalTimer); p.removalTimer = null; }
-    room.players.delete(playerId);
-    if (room.game && room.game.started && !room.game.gameOver) {
-      room.game.removePlayer(playerId);
-      afterAction(room);
-    }
-    broadcastLobby(room);
-    maybeCleanup(room);
-  }
+  const dropPlayer = (room, playerId) => removePlayerFromRoom(room, playerId);
 
   // Join a room as a watch-only spectator (sees the table, not the hands).
   socket.on("player:spectate", ({ code, name } = {}, cb) => {
