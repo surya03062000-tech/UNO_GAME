@@ -79,78 +79,85 @@
 
     <!-- ============ GAME ============ -->
     <section id="game" class="screen">
-      <header class="game-top">
-        <div>
+      <!-- Top HUD -->
+      <div class="hud-top">
+        <div class="hud-left">
           <div id="turnBanner" class="turn-banner"></div>
           <div id="nextBanner" class="next-banner"></div>
           <div id="turnTimer" class="turn-timer"></div>
         </div>
-        <div class="top-right">
+        <div class="hud-right">
           <span id="roleBadge" class="badge"></span>
-          <button id="themeBtn" class="av-btn" title="Toggle theme">🌗</button>
-          <button id="challengeBtn" class="btn warn small" style="display:none">Challenge</button>
-          <button id="unoBtn" class="btn warn small">UNO!</button>
+          <button id="menuBtn" class="icon-btn" title="Menu">☰</button>
         </div>
-      </header>
+      </div>
 
-      <!-- Sound + voice chat controls -->
-      <div class="av-bar">
-        <button id="soundBtn" class="av-btn" title="Sound on/off">🔊</button>
-        <button id="cbBtn" class="av-btn" title="Colorblind mode">🎨 CB</button>
-        <button id="sortBtn" class="av-btn" title="Sort your hand by color">🔀 Sort</button>
+      <!-- Green felt table -->
+      <div class="felt">
+        <div id="opponents" class="seats"></div>
+        <div class="center-piles">
+          <button id="drawBtn" class="big-card draw-pile" title="Draw">Draw</button>
+          <div class="center-info">
+            <div id="activeColor" class="color-dot"></div>
+            <div id="dirArrow" class="dir">↻</div>
+            <div id="deckCount" class="deck-count"></div>
+          </div>
+          <div class="discard-wrap">
+            <div id="discard" class="big-card"></div>
+            <span id="playedBy" class="played-by"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom HUD: hand + actions -->
+      <div class="hud-bottom">
+        <p id="actionLog" class="action-log"></p>
+
+        <!-- Out player: peek at one player's hand -->
+        <div id="peekPanel" class="peek-panel" style="display:none">
+          <div class="hand-label">👀 You're out — peek at a player's hand:</div>
+          <div id="peekButtons" class="peek-buttons"></div>
+          <div id="peekHand" class="hand"></div>
+        </div>
+
+        <div id="myHandWrap" class="hand-wrap">
+          <div id="myHand" class="hand fan"></div>
+        </div>
+
+        <div class="bottom-actions">
+          <div class="reactions-bar" id="reactionsBar">
+            <button data-emoji="👍">👍</button>
+            <button data-emoji="😂">😂</button>
+            <button data-emoji="🔥">🔥</button>
+            <button data-emoji="😮">😮</button>
+            <button data-emoji="👏">👏</button>
+            <button data-emoji="❤️">❤️</button>
+          </div>
+          <button id="challengeBtn" class="btn warn small" style="display:none">Challenge</button>
+          <button id="unoBtn" class="uno-call">UNO!</button>
+        </div>
+      </div>
+
+      <!-- Slide-in menu (controls) -->
+      <button id="menuBackdrop" class="menu-backdrop" style="display:none"></button>
+      <div id="sideMenu" class="side-menu">
+        <h3>Menu</h3>
+        <button id="soundBtn" class="av-btn" title="Sound on/off">🔊 Sound</button>
+        <button id="themeBtn" class="av-btn" title="Toggle theme">🌗 Theme</button>
+        <button id="cbBtn" class="av-btn" title="Colorblind mode">🎨 Colorblind</button>
+        <button id="sortBtn" class="av-btn" title="Sort your hand by color">🔀 Sort hand</button>
+        <hr/>
         <button id="micBtn" class="av-btn" title="Join voice chat">🎤 Mic</button>
         <button id="muteBtn" class="av-btn" style="display:none" title="Mute your mic">🔴 Mute</button>
         <button id="deafenBtn" class="av-btn" style="display:none" title="Cut all incoming audio">🔇 Audio cut</button>
-        <button id="leaveBtn" class="av-btn danger" title="Leave the room">🚪 Leave</button>
         <span id="voiceStatus" class="av-status"></span>
+        <hr/>
+        <button id="restartBtn" class="btn dark small" style="display:none">Restart Round</button>
+        <button id="leaveBtn" class="btn warn small" title="Leave the room">🚪 Leave room</button>
       </div>
 
-      <div id="opponents" class="opponents"></div>
-
-      <div class="table">
-        <div class="pile">
-          <div id="discard" class="big-card"></div>
-          <span class="pile-label">Discard</span>
-          <span id="playedBy" class="played-by"></span>
-        </div>
-        <div class="center-info">
-          <div id="activeColor" class="color-dot"></div>
-          <div id="dirArrow" class="dir">↻</div>
-          <div id="deckCount" class="deck-count"></div>
-        </div>
-        <div class="pile">
-          <button id="drawBtn" class="big-card draw-pile">Draw</button>
-          <span class="pile-label">Draw</span>
-        </div>
-      </div>
-
-      <p id="actionLog" class="action-log"></p>
-
-      <div class="reactions-bar" id="reactionsBar">
-        <button data-emoji="👍">👍</button>
-        <button data-emoji="😂">😂</button>
-        <button data-emoji="🔥">🔥</button>
-        <button data-emoji="😮">😮</button>
-        <button data-emoji="👏">👏</button>
-        <button data-emoji="❤️">❤️</button>
-        <button data-emoji="😎">😎</button>
-        <button data-emoji="😭">😭</button>
-      </div>
-
-      <!-- Out player: peek at one player's hand -->
-      <div id="peekPanel" class="peek-panel" style="display:none">
-        <div class="hand-label">👀 You're out — peek at a player's hand:</div>
-        <div id="peekButtons" class="peek-buttons"></div>
-        <div id="peekHand" class="hand"></div>
-      </div>
-
-      <div id="myHandWrap" class="hand-wrap">
-        <div class="hand-label">Your hand</div>
-        <div id="myHand" class="hand"></div>
-      </div>
-
-      <!-- Game over / ranking panel -->
-      <div id="overPanel" class="over-panel" style="display:none">
+      <!-- Game over / ranking panel (overlay) -->
+      <div id="overPanel" class="over-panel overlay-panel" style="display:none">
         <h2 id="overTitle">🏁 Game Over</h2>
         <ol id="rankList" class="rank-list"></ol>
         <div class="scoreboard">
@@ -164,11 +171,13 @@
         <button id="playAgainBtn" class="btn primary">Play Again</button>
       </div>
 
-      <!-- Admin god view: everyone's cards + controls -->
-      <div id="godView" class="god-view" style="display:none">
-        <div class="hand-label">👑 God view & controls</div>
+      <!-- Admin god view: everyone's cards + controls (overlay) -->
+      <div id="godView" class="god-view overlay-panel" style="display:none">
+        <div class="god-head">
+          <div class="hand-label">👑 God view & controls</div>
+          <button id="godClose" class="icon-btn">✕</button>
+        </div>
         <p id="adminNote" class="admin-note"></p>
-
         <div class="admin-tools">
           <div class="tool-box">
             <strong>Change top card</strong>
@@ -180,11 +189,9 @@
             </div>
           </div>
         </div>
-
         <div id="godHands"></div>
       </div>
-
-      <button id="restartBtn" class="btn dark small" style="display:none">Restart Round</button>
+      <button id="godBtn" class="icon-btn god-fab" style="display:none" title="God view">👑</button>
     </section>
 
     <!-- Color picker modal for wild cards -->

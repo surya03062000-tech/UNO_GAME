@@ -294,25 +294,31 @@ function renderGame(s) {
   let nextTxt = s.gameOver ? "" : `Next: ${shortName(s.nextPlayerId)}`;
   $("nextBanner").innerHTML = nextTxt + (s.pendingDraw ? `<span class="pending-pill">Stacked +${s.pendingDraw}</span>` : "");
 
-  // Opponents
+  // Opponents arranged around the table
   let flashActor = null;
   if (s.lastActorId && s.lastActorId !== lastActorSeen) { flashActor = s.lastActorId; lastActorSeen = s.lastActorId; }
   const opp = $("opponents");
   opp.innerHTML = "";
-  s.players.forEach((p) => {
-    if (!isWatcher && p.id === me.id) return;
+  const oppList = s.players.filter((p) => isWatcher || p.id !== me.id);
+  const n = oppList.length;
+  oppList.forEach((p, i) => {
     const d = document.createElement("div");
     d.className = "opp" + (p.isCurrent ? " current" : "") + (p.finished || p.eliminated ? " finished" : "") + (p.isLoser ? " loser" : "") + (p.id === flashActor ? " flash" : "");
     const canCatch = !s.gameOver && p.id !== me.id && !p.finished && !p.eliminated && p.handCount === 1 && !p.saidUno;
     d.innerHTML = `<div class="avatar">${avatarFor(p.id)}</div>
       <div class="name">${shortName(p.id)}</div>
-      <div class="count">${p.handCount}</div>
+      <div class="count">🂠 ${p.handCount}</div>
       ${p.eliminated ? `<div class="uno-tag">💀 OUT</div>` : p.finished ? `<div class="place-tag">#${p.place} done</div>` : ""}
       ${p.isLoser ? `<div class="uno-tag">LAST</div>` : ""}
       ${p.saidUno && !p.finished ? '<div class="uno-tag">UNO</div>' : ""}
       ${canCatch ? `<button class="catch-btn" data-target="${p.id}">Catch!</button>` : ""}`;
     const cbtn = d.querySelector(".catch-btn");
     if (cbtn) cbtn.onclick = () => socket.emit("game:catch", { targetId: p.id }, (r) => { if (!r.ok) flash(r.error); });
+    // Position around the top arc of the felt (player sits at the bottom).
+    const t = (i + 1) / (n + 1);
+    const theta = Math.PI * (1 - t);
+    d.style.left = (50 + 40 * Math.cos(theta)).toFixed(1) + "%";
+    d.style.top = (44 - 38 * Math.sin(theta)).toFixed(1) + "%";
     opp.appendChild(d);
   });
 
@@ -361,13 +367,16 @@ function renderGame(s) {
   if (s.gameOver) { over.style.display = "block"; renderRanking(s); } else over.style.display = "none";
   $("restartBtn").style.display = !s.gameOver && isAdmin ? "block" : "none";
 
-  const god = $("godView");
+  // God view is an admin overlay toggled by the 👑 button; keep it fresh.
   if (isAdmin) {
-    god.style.display = "block";
+    $("godBtn").style.display = "";
     ensureAdminSelectors();
     $("adminNote").textContent = s.adminNote ? "📝 " + s.adminNote : "";
     renderGodHands(s);
-  } else god.style.display = "none";
+  } else {
+    $("godBtn").style.display = "none";
+    $("godView").style.display = "none";
+  }
 
   // ---- Sound + animation cues ----
   if (s.topCard && s.topCard.id !== prevTopId) {
@@ -612,6 +621,18 @@ refreshSoundBtn();
 $("themeBtn").onclick = toggleTheme;
 $("cbBtn").onclick = toggleCB;
 $("sortBtn").onclick = toggleSort;
+
+// ---- Side menu ----
+function openMenu(o) {
+  $("sideMenu").classList.toggle("open", o);
+  $("menuBackdrop").style.display = o ? "block" : "none";
+}
+$("menuBtn").onclick = () => openMenu(!$("sideMenu").classList.contains("open"));
+$("menuBackdrop").onclick = () => openMenu(false);
+
+// ---- God view overlay (admin) ----
+$("godBtn").onclick = () => { $("godView").style.display = "block"; };
+$("godClose").onclick = () => { $("godView").style.display = "none"; };
 
 // ---------- Voice chat ----------
 const voice = createVoice(socket);

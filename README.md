@@ -46,6 +46,14 @@ small in a corner and play while you work.
 - **🧪 Tested** — an automated engine test suite (`npm test`).
 
 > Built for the **DATA & AI TEAM**. 🤖
+
+## 🪑 Table UI
+
+The game screen uses an **official-UNO-style table**: a cozy green felt with players
+seated around it, the draw/discard piles in the centre, and your hand fanned along the
+bottom. It fills the whole screen (no page scrolling on mobile) — your cards swipe
+horizontally if you're holding a lot. Controls live in the ☰ side-menu, and the admin
+god-view opens from the 👑 button.
 - **Draw-card stacking** — facing a `+2`? Stack a `+2` or anything higher (`+4/+6/+8/+10`); the pile grows for the next player. You can only stack equal-or-higher.
 - **Challenge** — when a wild draw card hits you, you can **Challenge** instead of drawing. If the player bluffed (had a matching color), *they* draw the penalty. If it was legal, *you* draw the penalty **+2 extra**.
 - **Elimination play** — empty your hand and you *finish* (ranked 🥇🥈🥉) and watch on. The rest play until only **one player is left** — that last player loses and the game ends. Then **anyone can start a new round**.
