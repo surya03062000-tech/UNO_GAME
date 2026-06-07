@@ -1,5 +1,5 @@
 // Service worker: caches the app shell so UNO installs and loads offline.
-const CACHE = "uno-cache-v6";
+const CACHE = "uno-cache-v7";
 const ASSETS = [
   "./", "./index.html", "./style.css", "./client.js",
   "./sfx.js", "./voice.js", "./manifest.webmanifest", "./icon.svg",

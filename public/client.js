@@ -622,12 +622,24 @@ $("themeBtn").onclick = toggleTheme;
 $("cbBtn").onclick = toggleCB;
 $("sortBtn").onclick = toggleSort;
 
-// ---- Side menu ----
+// ---- Side menu (controls + chat) ----
+function menuOpen() { return $("sideMenu").classList.contains("open"); }
 function openMenu(o) {
   $("sideMenu").classList.toggle("open", o);
   $("menuBackdrop").style.display = o ? "block" : "none";
+  if (o) {
+    chatUnread = 0; updateMenuBadge();
+    const box = $("chatMessages"); box.scrollTop = box.scrollHeight;
+  }
 }
-$("menuBtn").onclick = () => openMenu(!$("sideMenu").classList.contains("open"));
+function updateMenuBadge() {
+  ["menuBtn", "lobbyMenuBtn"].forEach((id) => {
+    const b = $(id); if (b) b.classList.toggle("has-unread", chatUnread > 0);
+  });
+}
+$("menuBtn").onclick = () => openMenu(!menuOpen());
+$("menuClose").onclick = () => openMenu(false);
+$("lobbyMenuBtn").onclick = () => openMenu(!menuOpen());
 $("menuBackdrop").onclick = () => openMenu(false);
 
 // ---- God view overlay (admin) ----
@@ -662,22 +674,9 @@ $("deafenBtn").onclick = () => voice.toggleDeafen();
 // Leave voice cleanly on tab close.
 window.addEventListener("beforeunload", () => { if (voice.isActive()) voice.stop(); });
 
-// ---------- Text chat ----------
-let chatCollapsed = false, chatUnread = 0;
-function showChat() { $("chatWidget").style.display = "flex"; requestNotify(); }
-function setChatHead() {
-  $("chatToggle").textContent = chatCollapsed ? "+" : "–";
-  const head = $("chatWidget").querySelector(".chat-head span");
-  head.innerHTML = "💬 Chat" + (chatCollapsed && chatUnread ? ` <span class="chat-unread">${chatUnread}</span>` : "");
-}
-function toggleChat() {
-  chatCollapsed = !chatCollapsed;
-  $("chatWidget").classList.toggle("collapsed", chatCollapsed);
-  if (!chatCollapsed) chatUnread = 0;
-  setChatHead();
-}
-$("chatToggle").onclick = toggleChat;
-$("chatWidget").querySelector(".chat-head").onclick = (e) => { if (e.target.id !== "chatToggle") toggleChat(); };
+// ---------- Text chat (lives inside the side menu) ----------
+let chatUnread = 0;
+function showChat() { requestNotify(); }
 $("chatForm").onsubmit = (e) => {
   e.preventDefault();
   const text = $("chatInput").value.trim();
@@ -694,7 +693,7 @@ socket.on("chat:msg", ({ name, avatar, text }) => {
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
   SFX.play("number");
-  if (chatCollapsed && !mine) { chatUnread++; setChatHead(); }
+  if (!mine && !menuOpen()) { chatUnread++; updateMenuBadge(); }
 });
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
