@@ -274,11 +274,13 @@ socket.on("state", (state) => { lastState = state; show("game"); renderGame(stat
 
 function renderGame(s) {
   const isAdmin = me.role === "admin";
+  const isSpectator = me.role === "spectator";
+  const isWatcher = isAdmin || isSpectator;
   turnDeadline = s.turnDeadline || null;
-  $("roleBadge").textContent = isAdmin ? "👑 Admin" : "Player";
+  $("roleBadge").textContent = isAdmin ? "👑 Admin" : isSpectator ? "👁️ Spectator" : "Player";
   const meP = s.players.find((p) => p.id === me.id);
   const iAmFinished = meP && (meP.finished || meP.eliminated);
-  const myTurn = !isAdmin && !iAmFinished && s.currentPlayerId === me.id && !s.gameOver;
+  const myTurn = !isWatcher && !iAmFinished && s.currentPlayerId === me.id && !s.gameOver;
 
   const banner = $("turnBanner");
   banner.classList.toggle("my-turn", myTurn);
@@ -298,7 +300,7 @@ function renderGame(s) {
   const opp = $("opponents");
   opp.innerHTML = "";
   s.players.forEach((p) => {
-    if (!isAdmin && p.id === me.id) return;
+    if (!isWatcher && p.id === me.id) return;
     const d = document.createElement("div");
     d.className = "opp" + (p.isCurrent ? " current" : "") + (p.finished || p.eliminated ? " finished" : "") + (p.isLoser ? " loser" : "") + (p.id === flashActor ? " flash" : "");
     const canCatch = !s.gameOver && p.id !== me.id && !p.finished && !p.eliminated && p.handCount === 1 && !p.saidUno;
@@ -323,6 +325,7 @@ function renderGame(s) {
   $("dirArrow").textContent = s.direction === 1 ? "↻" : "↺";
   $("deckCount").textContent = `Deck: ${s.deckCount}`;
   $("actionLog").textContent = s.lastAction;
+  $("playedBy").textContent = (s.lastActorId && !s.gameOver) ? `▶ ${avatarFor(s.lastActorId)} ${shortName(s.lastActorId)}` : "";
 
   $("drawBtn").disabled = !myTurn;
   $("drawBtn").style.opacity = myTurn ? "1" : ".5";
@@ -332,14 +335,27 @@ function renderGame(s) {
   $("challengeBtn").style.display = myTurn && s.canChallenge ? "" : "none";
 
   const myHandWrap = $("myHandWrap");
-  if (isAdmin) {
+  if (isWatcher || (meP && (meP.finished || meP.eliminated))) {
     myHandWrap.style.display = "none";
   } else {
     myHandWrap.style.display = "block";
     const myCards = meP ? (sortHand ? sortedHand(meP.hand) : meP.hand) : [];
     renderHand($("myHand"), myCards, myTurn, s);
   }
-  $("unoBtn").style.display = !isAdmin && meP && !iAmFinished && meP.handCount <= 2 ? "" : "none";
+  $("unoBtn").style.display = !isWatcher && meP && !iAmFinished && meP.handCount <= 2 ? "" : "none";
+
+  // Peek panel for out players (finished/eliminated) — watch one player's hand.
+  const peekPanel = $("peekPanel");
+  if (!isWatcher && meP && (meP.finished || meP.eliminated) && !s.gameOver) {
+    peekPanel.style.display = "block";
+    const actives = s.players.filter((p) => !p.finished && !p.eliminated);
+    $("peekButtons").innerHTML = actives.map((p) =>
+      `<button class="peek-pick${p.id === s.peekId ? " sel" : ""}" data-pid="${p.id}">${avatarFor(p.id)} ${shortName(p.id)}</button>`).join("");
+    $("peekButtons").querySelectorAll(".peek-pick").forEach((b) =>
+      b.onclick = () => socket.emit("game:peek", { targetId: b.dataset.pid }, () => {}));
+    const peeked = s.peekId && s.players.find((p) => p.id === s.peekId);
+    renderHand($("peekHand"), peeked && peeked.hand ? (sortHand ? sortedHand(peeked.hand) : peeked.hand) : [], false, s);
+  } else peekPanel.style.display = "none";
 
   const over = $("overPanel");
   if (s.gameOver) { over.style.display = "block"; renderRanking(s); } else over.style.display = "none";
@@ -361,7 +377,11 @@ function renderGame(s) {
     }
     prevTopId = s.topCard.id;
   }
-  if (myTurn && !prevMyTurn) SFX.play("turn");
+  if (myTurn && !prevMyTurn) {
+    SFX.play("turn");
+    if (navigator.vibrate) navigator.vibrate([180, 80, 180]);
+    notifyTurn();
+  }
   prevMyTurn = myTurn;
   if (s.gameOver && !prevOver) {
     const lost = meP && (meP.isLoser || meP.eliminated);
@@ -623,7 +643,7 @@ window.addEventListener("beforeunload", () => { if (voice.isActive()) voice.stop
 
 // ---------- Text chat ----------
 let chatCollapsed = false, chatUnread = 0;
-function showChat() { $("chatWidget").style.display = "flex"; }
+function showChat() { $("chatWidget").style.display = "flex"; requestNotify(); }
 function setChatHead() {
   $("chatToggle").textContent = chatCollapsed ? "+" : "–";
   const head = $("chatWidget").querySelector(".chat-head span");
@@ -690,6 +710,47 @@ socket.on("kicked", () => {
   alert("You were removed from the room by the admin.");
   location.reload();
 });
+
+// ---------- Spectator ----------
+$("spectateBtn").onclick = () => {
+  SFX.unlock();
+  const code = $("joinCode").value.trim().toUpperCase();
+  const name = $("joinName").value.trim() || "Spectator";
+  if (!code) return setErr("Enter the access code to spectate.");
+  socket.emit("player:spectate", { code, name }, (res) => {
+    if (!res.ok) return setErr(res.error);
+    me = { role: "spectator", code: res.code, name, avatar: "👁️" };
+    showChat();
+  });
+};
+
+// ---------- Emoji reactions ----------
+$("reactionsBar").querySelectorAll("button").forEach((b) => {
+  b.onclick = () => socket.emit("react", { emoji: b.dataset.emoji });
+});
+socket.on("reaction", ({ name, emoji }) => floatEmoji(emoji, name));
+function floatEmoji(emoji, name) {
+  const el = document.createElement("div");
+  el.className = "float-emoji";
+  el.textContent = emoji;
+  el.style.left = (10 + Math.random() * 80) + "vw";
+  el.style.animationDuration = (2 + Math.random()) + "s";
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3200);
+}
+
+// ---------- "Your turn" browser notification ----------
+function notifyTurn() {
+  try {
+    if (document.visibilityState === "visible") return;
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification("🎯 Your turn! — DATA & AI TEAM UNO");
+    }
+  } catch {}
+}
+function requestNotify() {
+  try { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); } catch {}
+}
 
 // Attempt to rejoin a previous session after a refresh.
 tryAutoReconnect();

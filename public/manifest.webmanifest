@@ -1,7 +1,7 @@
 {
-  "name": "Private UNO Game",
-  "short_name": "UNO",
-  "description": "Invite-only multiplayer UNO with voice chat, admin god-view and more.",
+  "name": "DATA & AI TEAM UNO",
+  "short_name": "AI UNO",
+  "description": "Invite-only multiplayer UNO with voice chat, bots, admin god-view and more.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

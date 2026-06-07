@@ -3,21 +3,24 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>UNO — Private Room</title>
+  <title>DATA &amp; AI TEAM UNO</title>
   <link rel="stylesheet" href="style.css" />
   <link rel="manifest" href="manifest.webmanifest" />
   <meta name="theme-color" content="#0f1320" />
   <link rel="icon" href="icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icon.svg" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-title" content="UNO" />
+  <meta name="apple-mobile-web-app-title" content="AI TEAM UNO" />
 </head>
 <body>
   <div id="app">
 
     <!-- ============ HOME / ENTRY ============ -->
     <section id="home" class="screen active">
-      <h1 class="logo">UNO</h1>
+      <div class="brand">
+        <span class="brand-team">DATA &amp; AI TEAM</span>
+        <h1 class="logo">UNO</h1>
+      </div>
       <p class="tagline">Private room — invite-only</p>
 
       <div class="card-panel">
@@ -27,6 +30,7 @@
         <div id="avatarPick" class="avatar-pick"></div>
         <input id="joinCode" placeholder="Access code (e.g. ABC23)" maxlength="5" style="text-transform:uppercase" />
         <button id="joinBtn" class="btn primary">Join Game</button>
+        <button id="spectateBtn" class="btn ghost small" style="margin-top:8px">👁️ Watch as spectator</button>
       </div>
 
       <button id="installBtn" class="btn ghost install-btn" style="display:none">📲 Install app on this device</button>
@@ -107,6 +111,7 @@
         <div class="pile">
           <div id="discard" class="big-card"></div>
           <span class="pile-label">Discard</span>
+          <span id="playedBy" class="played-by"></span>
         </div>
         <div class="center-info">
           <div id="activeColor" class="color-dot"></div>
@@ -120,6 +125,24 @@
       </div>
 
       <p id="actionLog" class="action-log"></p>
+
+      <div class="reactions-bar" id="reactionsBar">
+        <button data-emoji="👍">👍</button>
+        <button data-emoji="😂">😂</button>
+        <button data-emoji="🔥">🔥</button>
+        <button data-emoji="😮">😮</button>
+        <button data-emoji="👏">👏</button>
+        <button data-emoji="❤️">❤️</button>
+        <button data-emoji="😎">😎</button>
+        <button data-emoji="😭">😭</button>
+      </div>
+
+      <!-- Out player: peek at one player's hand -->
+      <div id="peekPanel" class="peek-panel" style="display:none">
+        <div class="hand-label">👀 You're out — peek at a player's hand:</div>
+        <div id="peekButtons" class="peek-buttons"></div>
+        <div id="peekHand" class="hand"></div>
+      </div>
 
       <div id="myHandWrap" class="hand-wrap">
         <div class="hand-label">Your hand</div>

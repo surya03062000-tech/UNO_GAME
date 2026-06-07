@@ -400,9 +400,20 @@ export class UnoGame {
     }
 
     const playable = hand.filter((c) => canPlay(c, this.topCard, this.activeColor));
-    const nonWild = playable.filter((c) => !isWild(c));
-    const choice = nonWild[0] || playable[0];
-    if (choice) { const r = this.playCard(playerId, choice.id, isWild(choice) ? bestColor() : null); autoUno(); return r; }
+    if (playable.length) {
+      // Is the next active player close to winning? Then prefer aggressive cards.
+      const nextId = this.nextPlayerId;
+      const nextLow = nextId && this.hands[nextId] && this.hands[nextId].length <= 2;
+      const rank = (c) => {
+        if (isWild(c)) return drawAmt(c) > 0 ? (nextLow ? 90 : 25) : 20; // save plain wild; use wild-draws if next is low
+        if (drawAmt(c) > 0 || c.kind === "skip" || c.kind === "reverse") return nextLow ? 80 : 55; // action cards
+        return 60 + (c.value || 0); // dump high number cards first
+      };
+      const choice = [...playable].sort((a, b) => rank(b) - rank(a))[0];
+      const r = this.playCard(playerId, choice.id, isWild(choice) ? bestColor() : null);
+      autoUno();
+      return r;
+    }
 
     const r = this.drawCard(playerId);
     if (r.canPlayDrawn) {
@@ -481,13 +492,17 @@ export class UnoGame {
     return { ok: true };
   }
 
-  stateFor(playerId, godView = false) {
+  stateFor(playerId, godView = false, peekId = null) {
+    // An out player (finished/eliminated) may peek at ONE chosen player's hand.
+    const isOut = this.finished.includes(playerId) || this.eliminated.includes(playerId);
+    const canPeek = isOut && peekId;
     const players = this.playerOrder.map((id) => {
       const place = this.finished.indexOf(id);
+      const reveal = id === playerId || godView || (canPeek && id === peekId);
       return {
         id,
         handCount: this.hands[id].length,
-        hand: id === playerId || godView ? this.hands[id] : null,
+        hand: reveal ? this.hands[id] : null,
         isCurrent: !this.gameOver && id === this.currentPlayerId && this._isActive(id),
         saidUno: this.unoCalled[id],
         finished: place !== -1,
@@ -510,6 +525,8 @@ export class UnoGame {
       lastActorId: this.lastActorId,
       finishOrder: this.finished.slice(),
       eliminatedOrder: this.eliminated.slice(),
+      youAreOut: isOut,
+      peekId: canPeek ? peekId : null,
       lastAction: this.lastAction,
       adminNote: godView ? this.adminNote : "",
       players,

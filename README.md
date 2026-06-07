@@ -1,4 +1,4 @@
-# 🎴 Private UNO Game
+# 🎴 DATA & AI TEAM UNO
 
 A real-time, multiplayer UNO card game you can run for your friends. **Invite-only**: only
 people you give an access code to can join. You (the **admin**) get a secret **god view**
@@ -35,7 +35,17 @@ small in a corner and play while you work.
 - **✨ Opponent-play highlight** — the player who just acted flashes, so it's easy to follow.
 - **👑 Admin auto-reconnect** — the admin's god-view comes back automatically after a refresh.
 - **🧹 Auto cleanup** — idle/empty rooms expire after 24h to keep memory tidy.
-- **📱 Mobile-friendly** — larger cards, buttons and tap targets on small screens.
+- **📱 Mobile-friendly** — larger cards, buttons and tap targets; layout wraps cleanly when the window is resized/minimised.
+- **🏷️ Played-by label** — the discard pile shows who played the current card.
+- **👀 Out-player peek** — finished/eliminated players can pick one player and watch their hand.
+- **👁️ Spectator mode** — watch a room (table only, no hands) with the access code.
+- **🔔 Turn alerts** — vibration + a browser notification when it's your turn (if the tab is in the background).
+- **😀 Emoji reactions** — quick floating emoji reactions for everyone.
+- **🧠 Smarter bots** — bots save wilds, dump high cards, and get aggressive when the next player is low.
+- **🔐 Hardened** — chat/reaction rate-limiting and a profanity filter.
+- **🧪 Tested** — an automated engine test suite (`npm test`).
+
+> Built for the **DATA & AI TEAM**. 🤖
 - **Draw-card stacking** — facing a `+2`? Stack a `+2` or anything higher (`+4/+6/+8/+10`); the pile grows for the next player. You can only stack equal-or-higher.
 - **Challenge** — when a wild draw card hits you, you can **Challenge** instead of drawing. If the player bluffed (had a matching color), *they* draw the penalty. If it was legal, *you* draw the penalty **+2 extra**.
 - **Elimination play** — empty your hand and you *finish* (ranked 🥇🥈🥉) and watch on. The rest play until only **one player is left** — that last player loses and the game ends. Then **anyone can start a new round**.

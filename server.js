@@ -73,7 +73,7 @@ function loadStore() {
         code, players: new Map(), adminSockets: new Set(), game: null,
         scores: r.scores || {}, meta: r.meta || {}, history: r.history || [],
         settings: { ...DEFAULT_SETTINGS, ...(r.settings || {}) },
-        turnTimer: null, turnDeadline: null, botTimer: null, lastActive: Date.now(),
+        turnTimer: null, turnDeadline: null, botTimer: null, lastActive: Date.now(), spectators: new Set(),
       });
     }
     console.log(`Loaded ${rooms.size} persisted room(s) from disk.`);
@@ -206,10 +206,14 @@ function broadcastState(room) {
   scheduleBots(room);
   const extra = { turnDeadline: room.turnDeadline, turnSeconds: room.settings?.turnSeconds || 0 };
   for (const p of room.players.values()) {
-    if (p.connected && p.socketId) io.to(p.socketId).emit("state", { ...room.game.stateFor(p.id, false), ...extra });
+    if (p.connected && p.socketId) io.to(p.socketId).emit("state", { ...room.game.stateFor(p.id, false, p.peekId), ...extra });
   }
   for (const sockId of room.adminSockets) {
     io.to(sockId).emit("state", { ...room.game.stateFor(null, true), ...extra });
+  }
+  // Spectators get the public view (counts only, no hands).
+  for (const sockId of (room.spectators || [])) {
+    io.to(sockId).emit("state", { ...room.game.stateFor(null, false), spectator: true, ...extra });
   }
 }
 
@@ -253,7 +257,23 @@ setInterval(() => {
   persist();
 }, 30 * 60 * 1000);
 
+// Mild profanity filter (replace with asterisks). Extend the list as needed.
+const BAD_WORDS = ["fuck", "shit", "bitch", "asshole", "bastard", "dick", "cunt", "pussy"];
+const BAD_RE = new RegExp(`\\b(${BAD_WORDS.join("|")})\\b`, "gi");
+const cleanText = (t) => String(t || "").replace(BAD_RE, (m) => "*".repeat(m.length));
+
 io.on("connection", (socket) => {
+  // Simple per-socket rate limiter: returns true if the action is allowed.
+  const rl = {};
+  function allow(key, perSec) {
+    const now = Date.now();
+    const win = rl[key] || (rl[key] = []);
+    while (win.length && now - win[0] > 1000) win.shift();
+    if (win.length >= perSec) return false;
+    win.push(now);
+    return true;
+  }
+
   let joined = null; // { code, role, id }
 
   socket.on("admin:create", ({ password }, cb) => {
@@ -262,7 +282,7 @@ io.on("connection", (socket) => {
     const room = {
       code, players: new Map(), adminSockets: new Set(), game: null,
       scores: {}, meta: {}, history: [], settings: { ...DEFAULT_SETTINGS },
-      turnTimer: null, turnDeadline: null, botTimer: null, lastActive: Date.now(),
+      turnTimer: null, turnDeadline: null, botTimer: null, lastActive: Date.now(), spectators: new Set(),
     };
     rooms.set(code, room);
     room.adminSockets.add(socket.id);
@@ -333,20 +353,48 @@ io.on("connection", (socket) => {
     persist();
   });
 
+  // Resolve the display name/avatar for the current connection.
+  const identify = (room) => {
+    if (joined?.role === "player") {
+      const p = room.players.get(joined.id);
+      return { name: p?.name || joined.id, avatar: p?.avatar || "🙂" };
+    }
+    if (joined?.role === "spectator") return { name: joined.name || "Spectator", avatar: "👁️" };
+    return { name: "Admin", avatar: "👑" };
+  };
+
   // ---- Text chat ----
   socket.on("chat:send", ({ text } = {}) => {
     if (!joined) return;
+    if (!allow("chat", 2)) return; // max 2 messages/sec
     const room = rooms.get(joined.code);
     if (!room) return;
-    text = String(text || "").trim().slice(0, 300);
+    text = cleanText(String(text || "").trim().slice(0, 300));
     if (!text) return;
-    let name = "Admin", avatar = "👑";
-    if (joined.role === "player") {
-      const p = room.players.get(joined.id);
-      name = p?.name || joined.id;
-      avatar = p?.avatar || "🙂";
-    }
+    const { name, avatar } = identify(room);
     io.to(room.code).emit("chat:msg", { name, avatar, text, ts: Date.now() });
+  });
+
+  // ---- Emoji reactions ----
+  socket.on("react", ({ emoji } = {}) => {
+    if (!joined) return;
+    if (!allow("react", 3)) return;
+    const room = rooms.get(joined.code);
+    if (!room) return;
+    const allowed = ["👍", "😂", "🔥", "😮", "👏", "❤️", "😎", "😭"];
+    if (!allowed.includes(emoji)) return;
+    const { name } = identify(room);
+    io.to(room.code).emit("reaction", { name, emoji });
+  });
+
+  // ---- Eliminated/finished player peeks at one player's hand ----
+  socket.on("game:peek", ({ targetId } = {}, cb) => {
+    if (!joined || joined.role !== "player") return cb?.({ ok: false });
+    const room = rooms.get(joined.code);
+    if (!room || !room.game) return cb?.({ ok: false });
+    const me = room.players.get(joined.id);
+    if (me) { me.peekId = targetId || null; broadcastState(room); }
+    cb?.({ ok: true });
   });
 
   // Anyone (admin or player) can start / restart.
@@ -461,13 +509,35 @@ io.on("connection", (socket) => {
     maybeCleanup(room);
   }
 
-  // A player (or watching admin) leaves the room voluntarily.
+  // Join a room as a watch-only spectator (sees the table, not the hands).
+  socket.on("player:spectate", ({ code, name } = {}, cb) => {
+    code = (code || "").toUpperCase().trim();
+    const room = rooms.get(code);
+    if (!room) return cb?.({ ok: false, error: "Invalid access code." });
+    room.spectators = room.spectators || new Set();
+    room.spectators.add(socket.id);
+    socket.join(code);
+    joined = { code, role: "spectator", name: (name || "Spectator").slice(0, 20) };
+    cb?.({ ok: true, code });
+    broadcastLobby(room);
+    broadcastScores(room);
+    if (room.game) socket.emit("state", {
+      ...room.game.stateFor(null, false), spectator: true,
+      turnDeadline: room.turnDeadline, turnSeconds: room.settings?.turnSeconds || 0,
+    });
+  });
+
+  // A player / admin / spectator leaves the room voluntarily.
   socket.on("room:leave", (_, cb) => {
     if (!joined) return cb?.({ ok: false });
     const room = rooms.get(joined.code);
     if (!room) { joined = null; return cb?.({ ok: true }); }
     if (joined.role === "admin") {
       room.adminSockets.delete(socket.id);
+      socket.leave(room.code);
+      maybeCleanup(room);
+    } else if (joined.role === "spectator") {
+      room.spectators?.delete(socket.id);
       socket.leave(room.code);
       maybeCleanup(room);
     } else {
@@ -560,6 +630,8 @@ io.on("connection", (socket) => {
     }
     if (joined.role === "admin") {
       room.adminSockets.delete(socket.id);
+    } else if (joined.role === "spectator") {
+      room.spectators?.delete(socket.id);
     } else {
       const p = room.players.get(joined.id);
       // Guard against a reconnect race: if a newer socket already took this

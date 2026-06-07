@@ -17,9 +17,18 @@ body {
   background: radial-gradient(circle at 50% 0%, #1a2138, var(--bg));
   color: var(--text);
   min-height: 100vh;
+  overflow-x: hidden; /* no horizontal scroll when the window is narrow */
 }
 
 #app { max-width: 820px; margin: 0 auto; padding: 16px; }
+
+/* Everything inside the app should wrap instead of overflowing */
+.game-top { flex-wrap: wrap; gap: 8px; }
+.top-right { flex-wrap: wrap; justify-content: flex-end; }
+.av-bar { flex-wrap: wrap; }
+.opponents { flex-wrap: wrap; }
+.table { flex-wrap: wrap; }
+* { min-width: 0; }
 
 .screen { display: none; }
 .screen.active { display: block; }
@@ -175,6 +184,38 @@ input:focus { outline: 2px solid var(--blue); }
   pointer-events: none; border-radius: 2px; animation: confettiFall linear forwards;
 }
 @keyframes confettiFall { to { transform: translateY(105vh) rotate(720deg); opacity: .9; } }
+
+/* ---------- Brand ---------- */
+.brand { text-align: center; margin-top: 18px; }
+.brand-team {
+  display: block; font-size: 15px; font-weight: 800; letter-spacing: 3px;
+  color: var(--blue); text-transform: uppercase; margin-bottom: -6px;
+  text-shadow: 0 1px 2px rgba(0,0,0,.4);
+}
+
+/* ---------- Played-by + reactions ---------- */
+.played-by { font-size: 11px; color: var(--yellow); font-weight: 700; min-height: 14px; text-align: center; }
+.reactions-bar { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 8px 0; }
+.reactions-bar button {
+  font-size: 20px; background: var(--panel2); border: 1px solid #39425f; border-radius: 10px;
+  width: 40px; height: 40px; cursor: pointer; transition: transform .1s;
+}
+.reactions-bar button:hover { transform: scale(1.15); }
+.float-emoji {
+  position: fixed; bottom: 60px; z-index: 90; font-size: 40px; pointer-events: none;
+  animation: floatUp 2.5s ease-out forwards;
+}
+@keyframes floatUp {
+  0% { transform: translateY(0) scale(.6); opacity: 0; }
+  20% { opacity: 1; transform: translateY(-20px) scale(1.2); }
+  100% { transform: translateY(-60vh) scale(1); opacity: 0; }
+}
+
+/* ---------- Peek panel ---------- */
+.peek-panel { background: var(--panel); border: 1px dashed #39425f; border-radius: 12px; padding: 12px; margin: 10px 0; }
+.peek-buttons { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 10px; }
+.peek-pick { background: var(--panel2); color: var(--text); border: 1px solid #39425f; border-radius: 8px; padding: 6px 10px; font-size: 13px; cursor: pointer; }
+.peek-pick.sel { background: var(--blue); border-color: var(--blue); }
 
 /* ---------- Colorblind letters ---------- */
 .cb-letter { display: none; }
